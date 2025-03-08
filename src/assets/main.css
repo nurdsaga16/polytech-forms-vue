@@ -1,0 +1,12 @@
+@import 'tailwindcss';
+@plugin "daisyui" {
+  themes:
+    night --default,
+    winter;
+}
+
+@import './fonts/stylesheet.css';
+
+* {
+  font-family: 'Gilroy', sans-serif;
+}
