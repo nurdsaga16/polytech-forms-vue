@@ -1,39 +1,40 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useScheduleStore } from '../stores/useScheduleStore'
 
-// Состояние для текущего месяца
+const router = useRouter()
+const scheduleStore = useScheduleStore()
+
+const showDeleteModal = ref(false)
+const selectedSchedule = ref(null)
 const currentDate = ref(new Date())
 
-// Заглушка для графиков
-const schedules = ref([
-  {
-    id: 1,
-    practice: 'Производственная практика',
-    teacher: 'Иванов И.И.',
-    group: 'ИС-21',
-    startDate: '2025-03-01',
-    endDate: '2025-03-15',
-  },
-  {
-    id: 2,
-    practice: 'Учебная практика',
-    teacher: 'Петров П.П.',
-    group: 'ИС-22',
-    startDate: '2025-02-10',
-    endDate: '2025-02-25',
-  },
-])
+const formatDate = (dateString) => {
+  return new Date(dateString).toLocaleDateString('ru-RU')
+}
 
 // Функции для работы с календарем
-function getDaysInMonth(date) {
+const getMonthName = (date) => {
+  return date.toLocaleString('ru-RU', { month: 'long', year: 'numeric' })
+}
+
+const changeMonth = (delta) => {
+  const newDate = new Date(currentDate.value)
+  newDate.setMonth(newDate.getMonth() + delta)
+  currentDate.value = newDate
+}
+
+const getDaysInMonth = (date) => {
   const year = date.getFullYear()
   const month = date.getMonth()
   const firstDay = new Date(year, month, 1)
   const lastDay = new Date(year, month + 1, 0)
   const days = []
 
-  // Добавляем пустые дни в начало
-  for (let i = 0; i < firstDay.getDay(); i++) {
+  // Добавляем пустые ячейки для выравнивания по понедельнику
+  let firstDayOfWeek = firstDay.getDay() || 7 // Преобразуем воскресенье (0) в 7
+  for (let i = 1; i < firstDayOfWeek; i++) {
     days.push(null)
   }
 
@@ -45,72 +46,86 @@ function getDaysInMonth(date) {
   return days
 }
 
-function isDateInRange(date, startDate, endDate) {
-  const current = new Date(date)
-  const start = new Date(startDate)
-  const end = new Date(endDate)
+const getScheduleForDate = (date) => {
+  return scheduleStore.schedules
+    .filter((schedule) => {
+      const scheduleStart = new Date(schedule.start_date)
+      const scheduleEnd = new Date(schedule.end_date)
+      const currentDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
 
-  // Устанавливаем время в начало дня для корректного сравнения
-  current.setHours(0, 0, 0, 0)
-  start.setHours(0, 0, 0, 0)
-  end.setHours(0, 0, 0, 0)
+      // Устанавливаем время в 00:00:00 для корректного сравнения
+      scheduleStart.setHours(0, 0, 0, 0)
+      scheduleEnd.setHours(0, 0, 0, 0)
 
-  return current >= start && current <= end
+      return currentDate >= scheduleStart && currentDate <= scheduleEnd
+    })
+    .map((schedule) => ({
+      id: schedule.id,
+      practice: schedule.practice.title,
+      group: schedule.group.title,
+      teacher: schedule.user?.full_name || 'Не указан',
+      startDate: schedule.start_date,
+      endDate: schedule.end_date,
+    }))
 }
 
-function getScheduleForDate(date) {
-  return schedules.value.filter((schedule) =>
-    isDateInRange(date, schedule.startDate, schedule.endDate),
-  )
-}
-
-function formatDate(date) {
-  return new Date(date).toLocaleDateString('ru-RU', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
-}
-
-function changeMonth(delta) {
-  const newDate = new Date(currentDate.value)
-  newDate.setMonth(newDate.getMonth() + delta)
-  currentDate.value = newDate
-}
-
-function getMonthName(date) {
-  return date.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
-}
-
-// Функция для определения статуса графика
-function isScheduleCompleted(schedule) {
-  const today = new Date()
+const isScheduleCompleted = (schedule) => {
   const endDate = new Date(schedule.endDate)
-  return endDate < today
+  return endDate < new Date()
 }
 
-// Получение активных графиков
-const activeSchedules = computed(() =>
-  schedules.value.filter((schedule) => !isScheduleCompleted(schedule)),
-)
+// Разделение графиков на активные и завершенные
+const activeSchedules = computed(() => {
+  return scheduleStore.schedules
+    .filter((schedule) => {
+      const endDate = new Date(schedule.end_date)
+      return endDate >= new Date()
+    })
+    .map((schedule) => ({
+      id: schedule.id,
+      practice: schedule.practice.title,
+      group: schedule.group.title,
+      teacher: schedule.user?.full_name || 'Не указан',
+      startDate: schedule.start_date,
+      endDate: schedule.end_date,
+    }))
+})
 
-// Получение завершенных графиков
-const completedSchedules = computed(() =>
-  schedules.value.filter((schedule) => isScheduleCompleted(schedule)),
-)
+const completedSchedules = computed(() => {
+  return scheduleStore.schedules
+    .filter((schedule) => {
+      const endDate = new Date(schedule.end_date)
+      return endDate < new Date()
+    })
+    .map((schedule) => ({
+      id: schedule.id,
+      practice: schedule.practice.title,
+      group: schedule.group.title,
+      teacher: schedule.user?.full_name || 'Не указан',
+      startDate: schedule.start_date,
+      endDate: schedule.end_date,
+    }))
+})
 
-const showDeleteModal = ref(false)
-const selectedSchedule = ref(null)
+onMounted(() => {
+  scheduleStore.fetchSchedules()
+})
 
 const openDeleteModal = (schedule) => {
   selectedSchedule.value = schedule
   showDeleteModal.value = true
 }
 
-const deleteSchedule = () => {
-  schedules.value = schedules.value.filter((s) => s.id !== selectedSchedule.value.id)
-  showDeleteModal.value = false
-  selectedSchedule.value = null
+const deleteSchedule = async () => {
+  if (selectedSchedule.value) {
+    try {
+      await scheduleStore.deleteSchedule(selectedSchedule.value.id)
+      showDeleteModal.value = false
+      selectedSchedule.value = null
+    } catch (error) {
+      console.error('Ошибка при удалении:', error)
+    }
+  }
 }
 </script>
 
@@ -135,8 +150,80 @@ const deleteSchedule = () => {
         </RouterLink>
       </div>
 
+      <!-- Загрузка -->
+      <div v-if="scheduleStore.loading" class="flex justify-center py-8">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+
+      <!-- Ошибка -->
+      <div v-else-if="scheduleStore.error" class="alert alert-error">
+        <i class="fa-solid fa-circle-exclamation"></i>
+        <span>{{ scheduleStore.error }}</span>
+      </div>
+
       <!-- Список графиков -->
-      <div class="mt-6 sm:mt-8 space-y-6 sm:space-y-8">
+      <div v-else class="mt-6 sm:mt-8 space-y-6 sm:space-y-8">
+        <!-- Календарь -->
+        <div class="card bg-base-100 shadow-lg">
+          <div class="card-body p-2 sm:p-6">
+            <!-- Навигация по месяцам -->
+            <div class="flex items-center justify-between mb-3 sm:mb-4">
+              <button class="btn btn-ghost btn-xs sm:btn-sm" @click="changeMonth(-1)">
+                <i class="fa-solid fa-chevron-left"></i>
+              </button>
+              <h2 class="text-base sm:text-lg font-semibold">{{ getMonthName(currentDate) }}</h2>
+              <button class="btn btn-ghost btn-xs sm:btn-sm" @click="changeMonth(1)">
+                <i class="fa-solid fa-chevron-right"></i>
+              </button>
+            </div>
+
+            <!-- Дни недели -->
+            <div class="grid grid-cols-7 gap-0.5 sm:gap-1 mb-1 sm:mb-2">
+              <div
+                v-for="day in ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']"
+                :key="day"
+                class="text-center text-xs sm:text-sm font-medium text-base-content/70"
+              >
+                {{ day }}
+              </div>
+            </div>
+
+            <!-- Календарная сетка -->
+            <div class="grid grid-cols-7 gap-0.5 sm:gap-1">
+              <div
+                v-for="(day, index) in getDaysInMonth(currentDate)"
+                :key="index"
+                class="aspect-square p-0.5 sm:p-1 border rounded-lg text-[10px] sm:text-xs"
+                :class="{
+                  'bg-base-200': !day,
+                  'hover:bg-base-200': day,
+                }"
+              >
+                <template v-if="day">
+                  <div class="font-medium mb-0.5">{{ day.getDate() }}</div>
+                  <div class="space-y-0.5">
+                    <div
+                      v-for="schedule in getScheduleForDate(day)"
+                      :key="schedule.id"
+                      class="p-0.5 rounded cursor-pointer transition-colors"
+                      :class="{
+                        'bg-primary/10 text-primary hover:bg-primary/20':
+                          !isScheduleCompleted(schedule),
+                        'bg-base-200 text-base-content/50 hover:bg-base-300':
+                          isScheduleCompleted(schedule),
+                      }"
+                      :title="`${schedule.practice}\nГруппа: ${schedule.group}\nПреподаватель: ${schedule.teacher}`"
+                    >
+                      <div class="font-medium">{{ schedule.practice }}</div>
+                      <div class="text-[8px] sm:text-[10px] opacity-80">{{ schedule.group }}</div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Активные графики -->
         <div>
           <h3 class="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Активные графики</h3>
@@ -167,7 +254,7 @@ const deleteSchedule = () => {
                     </div>
                     <div class="flex gap-2 ml-auto">
                       <RouterLink
-                        :to="`/schedule/${schedule.id}/edit`"
+                        :to="{ name: 'schedule-edit', query: { id: schedule.id } }"
                         class="btn btn-ghost btn-xs sm:btn-sm"
                       >
                         <i class="fa-solid fa-pen-to-square"></i>
@@ -216,7 +303,7 @@ const deleteSchedule = () => {
                     </div>
                     <div class="flex gap-2 ml-auto">
                       <RouterLink
-                        :to="`/schedule/${schedule.id}/edit`"
+                        :to="{ name: 'schedule-edit', query: { id: schedule.id } }"
                         class="btn btn-ghost btn-xs sm:btn-sm"
                       >
                         <i class="fa-solid fa-pen-to-square"></i>

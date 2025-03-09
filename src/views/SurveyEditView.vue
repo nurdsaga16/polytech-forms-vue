@@ -1,18 +1,22 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
+import { useSurveyStore } from '@/stores/useSurveyStore'
+import { useScheduleStore } from '@/stores/useScheduleStore'
 
-const route = useRoute()
 const router = useRouter()
+const route = useRoute()
+const surveyStore = useSurveyStore()
+const scheduleStore = useScheduleStore()
 
-// Состояния для данных формы
+// Состояния формы
 const surveyTitle = ref('')
 const surveyDescription = ref('')
 const selectedSchedule = ref('')
+const responseLimit = ref(100)
 const blocks = ref([])
-const isLoading = ref(true)
 
-// Состояние для модальных окон
+// Состояния модальных окон
 const showTypeSelectionModal = ref(false)
 const showQuestionModal = ref(false)
 const showEditModal = ref(false)
@@ -21,93 +25,148 @@ const selectedBlockType = ref('')
 const newBlock = ref({
   type: '',
   question: '',
+  description: '',
   options: [],
   scale: { min: 1, max: 10 },
 })
-
-// Состояние для редактирования вопроса
 const editingBlock = ref(null)
-
-// Состояние для удаления вопроса
 const blockToDeleteIndex = ref(null)
 
-// Список графиков (заглушка)
-const schedules = ref([
-  { id: 1, name: 'Производственная практика - ИС-21' },
-  { id: 2, name: 'Учебная практика - ИС-22' },
-  { id: 3, name: 'Преддипломная практика - ИС-23' },
-])
+// ID опроса из маршрута
+const surveyId = route.params.id
 
-// Загрузка данных опроса
+// Данные из сторов
+const schedules = computed(() => scheduleStore.schedules)
+const schedulesLoading = computed(() => scheduleStore.loading)
+const schedulesError = computed(() => scheduleStore.error)
+const surveyLoading = computed(() => surveyStore.loading)
+const surveyError = computed(() => surveyStore.error)
+
+// Загрузка данных при монтировании
 onMounted(async () => {
+  if (!surveyId) {
+    console.error('ID опроса отсутствует')
+    router.push('/surveys')
+    return
+  }
+
   try {
-    // Здесь будет запрос к API для получения данных опроса
-    // Временная заглушка
-    const mockSurvey = {
-      id: route.params.id,
-      title: 'Оценка качества преподавания',
-      description: 'Опрос по оценке качества преподавания в текущем семестре',
-      questions: [
-        {
-          type: 'Множественный выбор',
-          question: 'Как вы оцениваете качество преподавания?',
-          options: ['Отлично', 'Хорошо', 'Удовлетворительно', 'Плохо'],
-        },
-        {
-          type: 'Шкала оценок',
-          question: 'Оцените доступность объяснения материала',
-          scale: { min: 1, max: 10 },
-        },
-      ],
+    console.log(`Загрузка данных для опроса с ID: ${surveyId}`)
+    await Promise.all([surveyStore.fetchSurvey(surveyId), scheduleStore.fetchSchedules()])
+
+    const surveyData = surveyStore.currentSurvey
+    console.log('Полученные данные опроса:', surveyData)
+
+    if (surveyData) {
+      surveyTitle.value = surveyData.title || ''
+      surveyDescription.value = surveyData.description || ''
+      responseLimit.value = surveyData.response_limit || 100
+      selectedSchedule.value = surveyData.schedule?.id || '' // Исправлено: берем schedule.id
+      blocks.value = surveyData.questions
+        ? surveyData.questions.map((question) => ({
+            title: question.title,
+            description: question.description || '',
+            order: question.order,
+            question_type: question.question_type,
+            answer_options: question.answer_options
+              ? question.answer_options.map((option) => ({
+                  title: option.title,
+                  order: option.order,
+                }))
+              : [],
+          }))
+        : []
+    } else {
+      throw new Error('Данные опроса не получены')
     }
 
-    surveyTitle.value = mockSurvey.title
-    surveyDescription.value = mockSurvey.description
-    blocks.value = mockSurvey.questions
-  } catch (error) {
-    console.error('Ошибка при загрузке опроса:', error)
-  } finally {
-    isLoading.value = false
+    // Проверка, есть ли выбранный график в списке расписаний
+    const scheduleExists = schedules.value.some((s) => s.id === selectedSchedule.value)
+    if (!scheduleExists) {
+      console.warn(`График с ID ${selectedSchedule.value} не найден в списке расписаний`)
+    }
+  } catch (err) {
+    console.error('Ошибка при загрузке данных:', err)
+    router.push('/surveys')
   }
 })
 
-// Открытие модального окна для выбора типа ответа
+// Функции управления интерфейсом
 function openTypeSelectionModal() {
   showTypeSelectionModal.value = true
 }
 
-// Открытие модального окна для добавления вопроса
 function openQuestionModal(type) {
   selectedBlockType.value = type
   newBlock.value.type = type
   showTypeSelectionModal.value = false
   showQuestionModal.value = true
-
-  // Инициализация данных в зависимости от типа блока
   if (type === 'Множественный выбор') {
     newBlock.value.options = ['', '']
   }
 }
 
-// Закрытие модального окна для добавления вопроса
 function closeQuestionModal() {
   showQuestionModal.value = false
   resetNewBlock()
 }
 
-// Добавление блока
 function addBlock() {
-  blocks.value.push({ ...newBlock.value })
+  const question = {
+    title: newBlock.value.question,
+    description: newBlock.value.description,
+    order: blocks.value.length + 1,
+    question_type: mapQuestionType(newBlock.value.type),
+  }
+  if (newBlock.value.type === 'Множественный выбор') {
+    question.answer_options = newBlock.value.options.map((option, index) => ({
+      title: option,
+      order: index + 1,
+    }))
+  }
+  blocks.value.push(question)
   closeQuestionModal()
 }
 
-// Открытие модального окна подтверждения удаления
+function mapQuestionType(type) {
+  switch (type) {
+    case 'Текст':
+      return 'text'
+    case 'Шкала оценок':
+      return 'scale'
+    case 'Множественный выбор':
+      return 'multiple_choice'
+    default:
+      return 'text'
+  }
+}
+
+async function saveSurvey() {
+  const surveyData = {
+    title: surveyTitle.value,
+    description: surveyDescription.value,
+    response_limit: responseLimit.value,
+    schedule_id: selectedSchedule.value, // Отправляем только ID графика
+    questions: blocks.value.map((block, index) => ({
+      ...block,
+      order: index + 1,
+    })),
+  }
+
+  try {
+    console.log('Сохранение опроса:', surveyData)
+    await surveyStore.updateSurvey(surveyId, surveyData)
+    router.push('/surveys')
+  } catch (error) {
+    alert(`Ошибка при обновлении опроса: ${surveyStore.error || 'Неизвестная ошибка'}`)
+  }
+}
+
 function openDeleteConfirmationModal(index) {
   blockToDeleteIndex.value = index
   showDeleteConfirmationModal.value = true
 }
 
-// Подтверждение удаления вопроса
 function confirmDeleteBlock() {
   if (blockToDeleteIndex.value !== null) {
     blocks.value.splice(blockToDeleteIndex.value, 1)
@@ -116,33 +175,29 @@ function confirmDeleteBlock() {
   }
 }
 
-// Отмена удаления вопроса
 function cancelDeleteBlock() {
   blockToDeleteIndex.value = null
   showDeleteConfirmationModal.value = false
 }
 
-// Сброс данных нового блока
 function resetNewBlock() {
   newBlock.value = {
     type: '',
     question: '',
+    description: '',
     options: [],
     scale: { min: 1, max: 10 },
   }
 }
 
-// Добавление опции для множественного выбора
 function addOption() {
   newBlock.value.options.push('')
 }
 
-// Удаление опции для множественного выбора
 function removeOption(index) {
   newBlock.value.options.splice(index, 1)
 }
 
-// Функция для перемещения вопроса вверх
 function moveQuestionUp(index) {
   if (index > 0) {
     const temp = blocks.value[index]
@@ -151,7 +206,6 @@ function moveQuestionUp(index) {
   }
 }
 
-// Функция для перемещения вопроса вниз
 function moveQuestionDown(index) {
   if (index < blocks.value.length - 1) {
     const temp = blocks.value[index]
@@ -160,479 +214,493 @@ function moveQuestionDown(index) {
   }
 }
 
-// Функция для открытия модального окна редактирования
 function openEditModal(block, index) {
-  editingBlock.value = { ...block, index }
+  editingBlock.value = {
+    ...block,
+    index,
+    type: mapQuestionTypeToDisplay(block.question_type),
+  }
   showEditModal.value = true
 }
 
-// Функция для сохранения изменений
+function mapQuestionTypeToDisplay(type) {
+  switch (type) {
+    case 'text':
+      return 'Текст'
+    case 'scale':
+      return 'Шкала оценок'
+    case 'multiple_choice':
+      return 'Множественный выбор'
+    default:
+      return 'Текст'
+  }
+}
+
 function saveEditedBlock() {
   if (editingBlock.value !== null) {
-    blocks.value[editingBlock.value.index] = {
-      ...editingBlock.value,
+    const updatedBlock = {
+      title: editingBlock.value.title,
+      description: editingBlock.value.description,
+      question_type: mapQuestionType(editingBlock.value.type),
+      order: editingBlock.value.order,
     }
+    if (editingBlock.value.type === 'Множественный выбор') {
+      updatedBlock.answer_options = editingBlock.value.answer_options.map((option, index) => ({
+        title: option.title,
+        order: index + 1,
+      }))
+    }
+    blocks.value[editingBlock.value.index] = updatedBlock
     showEditModal.value = false
     editingBlock.value = null
   }
 }
 
-// Функция для закрытия модального окна
 function closeEditModal() {
   showEditModal.value = false
   editingBlock.value = null
 }
 
-// Функция для сохранения опроса
-async function saveSurvey() {
-  try {
-    // Здесь будет запрос к API для сохранения изменений
-    console.log('Сохранение опроса:', {
-      id: route.params.id,
-      title: surveyTitle.value,
-      description: surveyDescription.value,
-      questions: blocks.value,
-    })
-    router.push('/surveys')
-  } catch (error) {
-    console.error('Ошибка при сохранении опроса:', error)
-  }
-}
+const isSurveyReady = computed(
+  () => blocks.value.length > 0 && surveyTitle.value && selectedSchedule.value,
+)
 
-// Вычисляемое свойство для проверки, есть ли вопросы
-const isSurveyReady = computed(() => blocks.value.length > 0)
+const isLoading = computed(() => surveyStore.loading || scheduleStore.loading)
 </script>
 
 <template>
-  <div class="survey-builder py-8">
+  <div class="survey-builder justify-center items-center py-8">
     <div class="mx-auto max-w-[58rem] px-4 xl:px-10">
-      <!-- Верхняя панель с навигацией и заголовком -->
+      <!-- Заголовок и навигация -->
       <div class="flex flex-col gap-4 mb-8">
-        <!-- Кнопка "Назад" -->
-        <RouterLink to="/surveys" class="btn btn-ghost gap-2 w-fit">
+        <button class="btn btn-ghost gap-2 w-fit" @click="router.push('/surveys')">
           <i class="fa-solid fa-arrow-left"></i>
           Назад
-        </RouterLink>
+        </button>
+        <h1 class="text-2xl font-bold">Редактирование опроса</h1>
+      </div>
 
-        <!-- Поле ввода названия опроса -->
-        <div class="w-full">
+      <!-- Загрузка -->
+      <div v-if="isLoading" class="flex justify-center py-8">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+
+      <!-- Ошибка загрузки -->
+      <div v-else-if="surveyError || schedulesError" class="alert alert-error mb-8">
+        <i class="fa-solid fa-circle-exclamation"></i>
+        <span>{{ surveyError || schedulesError }}</span>
+      </div>
+
+      <!-- Форма редактирования -->
+      <div v-else>
+        <div class="w-full mb-4">
           <input
             v-model="surveyTitle"
             placeholder="Введите название опроса..."
             class="input input-bordered w-full text-2xl font-bold h-14 px-4"
-            name="survey-title"
             maxlength="255"
           />
         </div>
-      </div>
 
-      <!-- Поле ввода описания опроса -->
-      <div class="mb-8">
-        <textarea
-          v-model="surveyDescription"
-          placeholder="Добавьте описание опроса..."
-          class="textarea textarea-bordered w-full h-32 text-lg px-4 py-3"
-          name="survey-description"
-        ></textarea>
-      </div>
+        <div class="mb-8">
+          <textarea
+            v-model="surveyDescription"
+            placeholder="Добавьте описание опроса..."
+            class="textarea textarea-bordered w-full h-32 text-lg px-4 py-3"
+          ></textarea>
+        </div>
 
-      <!-- Выбор графика -->
-      <div class="mb-8">
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text text-lg font-medium">Выберите график практики</span>
-          </label>
-          <select
-            v-model="selectedSchedule"
-            class="select select-bordered w-full h-12 text-lg"
-            required
+        <div class="mb-8">
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text text-lg font-medium">Лимит ответов</span>
+              <span class="label-text-alt text-base-content/50 text-sm whitespace-normal"
+                >(Оставьте пустым, чтобы не ставить ограничение (Не больше 255))</span
+              >
+            </label>
+            <input
+              v-model.number="responseLimit"
+              type="number"
+              min="1"
+              class="input input-bordered w-full h-12 text-lg"
+            />
+          </div>
+        </div>
+
+        <div class="mb-8">
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text text-lg font-medium">Выберите график практики</span>
+            </label>
+            <select
+              v-model="selectedSchedule"
+              class="select select-bordered w-full h-12 text-lg"
+              required
+              :disabled="schedulesLoading || schedulesError"
+            >
+              <option value="" disabled>Выберите график...</option>
+              <option v-for="schedule in schedules" :key="schedule.id" :value="schedule.id">
+                {{ schedule.practice?.title }} - {{ schedule.group?.title }}
+              </option>
+            </select>
+          </div>
+        </div>
+
+        <div class="mb-8">
+          <button class="btn btn-primary w-full h-14 text-lg gap-2" @click="openTypeSelectionModal">
+            <i class="fa-solid fa-plus"></i>
+            Добавить вопрос
+          </button>
+        </div>
+
+        <!-- Список вопросов -->
+        <div class="blocks space-y-6">
+          <div
+            v-for="(block, index) in blocks"
+            :key="index"
+            class="card bg-base-100 shadow-lg hover:shadow-xl transition-all duration-300"
           >
-            <option value="" disabled>Выберите график...</option>
-            <option v-for="schedule in schedules" :key="schedule.id" :value="schedule.id">
-              {{ schedule.name }}
-            </option>
-          </select>
+            <div class="card-body">
+              <div class="flex justify-between items-start">
+                <div class="flex items-center gap-4">
+                  <div
+                    class="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-bold"
+                  >
+                    {{ index + 1 }}
+                  </div>
+                  <h3 class="text-xl font-bold">{{ block.title }}</h3>
+                </div>
+                <div class="flex gap-2">
+                  <button @click="openEditModal(block, index)" class="btn btn-ghost btn-sm">
+                    <i class="fa-solid fa-pen-to-square text-base"></i>
+                  </button>
+                  <div class="flex flex-col gap-1">
+                    <button
+                      @click="moveQuestionUp(index)"
+                      class="btn btn-ghost btn-sm"
+                      :disabled="index === 0"
+                    >
+                      <i class="fa-solid fa-arrow-up text-base"></i>
+                    </button>
+                    <button
+                      @click="moveQuestionDown(index)"
+                      class="btn btn-ghost btn-sm"
+                      :disabled="index === blocks.length - 1"
+                    >
+                      <i class="fa-solid fa-arrow-down text-base"></i>
+                    </button>
+                  </div>
+                  <button
+                    @click="openDeleteConfirmationModal(index)"
+                    class="btn btn-ghost btn-sm text-error"
+                  >
+                    <i class="fa-solid fa-trash text-base"></i>
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="block.description" class="mb-4 text-base-content/70">
+                {{ block.description }}
+              </div>
+
+              <div class="badge badge-primary gap-2 text-sm">
+                <i class="fa-solid fa-tag"></i>
+                {{ mapQuestionTypeToDisplay(block.question_type) }}
+              </div>
+
+              <div v-if="block.question_type === 'multiple_choice'" class="mt-6">
+                <h4 class="text-lg font-semibold mb-4">Варианты ответов:</h4>
+                <ul class="space-y-3">
+                  <li
+                    v-for="(option, optionIndex) in block.answer_options"
+                    :key="optionIndex"
+                    class="flex items-center gap-3 p-3 bg-base-200 rounded-lg"
+                  >
+                    <div
+                      class="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary font-medium"
+                    >
+                      {{ option.order }}
+                    </div>
+                    <span class="text-base">{{ option.title }}</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Кнопка сохранения -->
+        <div class="mt-12">
+          <button
+            @click="saveSurvey"
+            :disabled="!isSurveyReady || isLoading"
+            class="btn btn-primary w-full h-14 text-lg gap-2"
+          >
+            <i v-if="isLoading" class="fa-solid fa-spinner fa-spin"></i>
+            <i v-else class="fa-solid fa-check"></i>
+            {{ isLoading ? 'Сохранение...' : 'Сохранить изменения' }}
+          </button>
         </div>
       </div>
 
-      <!-- Кнопка "Добавить новый блок" -->
-      <div class="mb-8">
-        <button
-          class="btn btn-primary w-full h-14 text-lg gap-2"
-          type="button"
-          @click="openTypeSelectionModal"
-        >
-          <i class="fa-solid fa-plus"></i>
-          Добавить вопрос
-        </button>
-      </div>
+      <!-- Модальное окно редактирования вопроса -->
+      <div v-if="showEditModal" class="modal modal-open">
+        <div class="modal-box max-w-2xl">
+          <div class="flex items-center gap-3 mb-6">
+            <div
+              class="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary"
+            >
+              <i class="fa-solid fa-pen-to-square text-xl"></i>
+            </div>
+            <h2 class="text-2xl font-bold">Редактировать вопрос</h2>
+          </div>
 
-      <!-- Блоки вопросов -->
-      <div v-if="isLoading" class="flex justify-center items-center h-64">
-        <span class="loading loading-spinner loading-lg"></span>
-      </div>
-      <div v-else class="blocks space-y-6">
-        <div
-          v-for="(block, index) in blocks"
-          :key="index"
-          class="card bg-base-100 shadow-lg hover:shadow-xl transition-all duration-300"
-        >
-          <div class="card-body">
-            <!-- Заголовок и кнопки управления -->
-            <div class="flex justify-between items-start">
-              <div class="flex items-center gap-4">
-                <div
-                  class="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-bold"
-                >
-                  {{ index + 1 }}
-                </div>
-                <h3 class="text-xl font-bold">{{ block.question }}</h3>
-              </div>
-              <div class="flex gap-2">
-                <!-- Кнопка "Редактировать" -->
-                <button @click="openEditModal(block, index)" class="btn btn-ghost btn-sm">
-                  <i class="fa-solid fa-pen-to-square text-base"></i>
-                </button>
-                <!-- Кнопки перемещения -->
-                <div class="flex flex-col gap-1">
-                  <button
-                    @click="moveQuestionUp(index)"
-                    class="btn btn-ghost btn-sm"
-                    :disabled="index === 0"
-                  >
-                    <i class="fa-solid fa-arrow-up text-base"></i>
-                  </button>
-                  <button
-                    @click="moveQuestionDown(index)"
-                    class="btn btn-ghost btn-sm"
-                    :disabled="index === blocks.length - 1"
-                  >
-                    <i class="fa-solid fa-arrow-down text-base"></i>
-                  </button>
-                </div>
-                <!-- Кнопка "Удалить" -->
+          <div class="space-y-6">
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text text-lg font-medium">Вопрос</span>
+              </label>
+              <input
+                v-model="editingBlock.title"
+                placeholder="Введите текст вопроса..."
+                class="input input-bordered w-full h-12 text-lg"
+              />
+            </div>
+
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text text-lg font-medium">Описание (необязательно)</span>
+              </label>
+              <textarea
+                v-model="editingBlock.description"
+                placeholder="Добавьте дополнительное описание вопроса..."
+                class="textarea textarea-bordered w-full h-24 text-base"
+              ></textarea>
+            </div>
+
+            <div v-if="editingBlock.type === 'Множественный выбор'" class="space-y-4">
+              <div class="flex items-center justify-between">
+                <h4 class="text-lg font-semibold">Варианты ответов</h4>
                 <button
-                  @click="openDeleteConfirmationModal(index)"
-                  class="btn btn-ghost btn-sm text-error"
+                  @click="
+                    editingBlock.answer_options.push({
+                      title: '',
+                      order: editingBlock.answer_options.length + 1,
+                    })
+                  "
+                  class="btn btn-success btn-sm gap-2"
                 >
-                  <i class="fa-solid fa-trash text-base"></i>
+                  <i class="fa-solid fa-plus"></i>
+                  Добавить вариант
                 </button>
               </div>
-            </div>
 
-            <!-- Описание вопроса -->
-            <div v-if="block.description" class="mb-4 text-base-content/70">
-              {{ block.description }}
-            </div>
-
-            <!-- Тип вопроса -->
-            <div class="badge badge-primary gap-2 text-sm">
-              <i class="fa-solid fa-tag"></i>
-              {{ block.type }}
-            </div>
-
-            <!-- Варианты ответов -->
-            <div v-if="block.type === 'Множественный выбор'" class="mt-6">
-              <h4 class="text-lg font-semibold mb-4">Варианты ответов:</h4>
-              <ul class="space-y-3">
-                <li
-                  v-for="(option, optionIndex) in block.options"
+              <div class="space-y-3">
+                <div
+                  v-for="(option, optionIndex) in editingBlock.answer_options"
                   :key="optionIndex"
                   class="flex items-center gap-3 p-3 bg-base-200 rounded-lg"
                 >
                   <div
                     class="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary font-medium"
                   >
-                    {{ optionIndex + 1 }}
+                    {{ option.order }}
                   </div>
-                  <span class="text-base">{{ option }}</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Кнопка "Сохранить изменения" -->
-      <div class="mt-12">
-        <button
-          @click="saveSurvey"
-          :disabled="!isSurveyReady"
-          class="btn btn-primary w-full h-14 text-lg gap-2"
-        >
-          <i class="fa-solid fa-check"></i>
-          Сохранить изменения
-        </button>
-      </div>
-    </div>
-
-    <!-- Модальные окна -->
-    <!-- Модальное окно для редактирования вопроса -->
-    <div v-if="showEditModal" class="modal modal-open">
-      <div class="modal-box max-w-2xl">
-        <!-- Заголовок -->
-        <div class="flex items-center gap-3 mb-6">
-          <div
-            class="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary"
-          >
-            <i class="fa-solid fa-pen-to-square text-xl"></i>
-          </div>
-          <h2 class="text-2xl font-bold">Редактировать вопрос</h2>
-        </div>
-
-        <!-- Основная форма -->
-        <div class="space-y-6">
-          <!-- Поле ввода вопроса -->
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text text-lg font-medium">Вопрос</span>
-            </label>
-            <input
-              v-model="editingBlock.question"
-              placeholder="Введите текст вопроса..."
-              class="input input-bordered w-full h-12 text-lg"
-            />
-          </div>
-
-          <!-- Поле для описания вопроса -->
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text text-lg font-medium">Описание (необязательно)</span>
-            </label>
-            <textarea
-              v-model="editingBlock.description"
-              placeholder="Добавьте дополнительное описание вопроса..."
-              class="textarea textarea-bordered w-full h-24 text-base"
-            ></textarea>
-          </div>
-
-          <!-- Редактирование вариантов ответов для типа "Множественный выбор" -->
-          <div v-if="editingBlock.type === 'Множественный выбор'" class="space-y-4">
-            <div class="flex items-center justify-between">
-              <h4 class="text-lg font-semibold">Варианты ответов</h4>
-              <button @click="editingBlock.options.push('')" class="btn btn-success btn-sm gap-2">
-                <i class="fa-solid fa-plus"></i>
-                Добавить вариант
-              </button>
-            </div>
-
-            <div class="space-y-3">
-              <div
-                v-for="(option, optionIndex) in editingBlock.options"
-                :key="optionIndex"
-                class="flex items-center gap-3 p-3 bg-base-200 rounded-lg"
-              >
-                <div
-                  class="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary font-medium"
-                >
-                  {{ optionIndex + 1 }}
+                  <input
+                    v-model="editingBlock.answer_options[optionIndex].title"
+                    placeholder="Введите вариант ответа..."
+                    class="input input-bordered flex-1 h-10"
+                  />
+                  <button
+                    v-if="editingBlock.answer_options.length > 2"
+                    @click="editingBlock.answer_options.splice(optionIndex, 1)"
+                    class="btn btn-error btn-sm btn-circle"
+                  >
+                    <i class="fa-solid fa-times"></i>
+                  </button>
                 </div>
-                <input
-                  v-model="editingBlock.options[optionIndex]"
-                  placeholder="Введите вариант ответа..."
-                  class="input input-bordered flex-1 h-10"
-                />
-                <button
-                  v-if="editingBlock.options.length > 2"
-                  @click="editingBlock.options.splice(optionIndex, 1)"
-                  class="btn btn-error btn-sm btn-circle"
-                >
-                  <i class="fa-solid fa-times"></i>
-                </button>
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- Кнопки действий -->
-        <div class="modal-action mt-8">
-          <button class="btn btn-outline gap-2" @click="closeEditModal">
-            <i class="fa-solid fa-times"></i>
-            Отмена
-          </button>
-          <button class="btn btn-primary gap-2" @click="saveEditedBlock">
-            <i class="fa-solid fa-check"></i>
-            Сохранить
-          </button>
+          <div class="modal-action mt-8">
+            <button class="btn btn-outline gap-2" @click="closeEditModal">
+              <i class="fa-solid fa-times"></i>
+              Отмена
+            </button>
+            <button class="btn btn-primary gap-2" @click="saveEditedBlock">
+              <i class="fa-solid fa-check"></i>
+              Сохранить
+            </button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Модальное окно для выбора типа ответа -->
-    <div v-if="showTypeSelectionModal" class="modal modal-open">
-      <div class="modal-box max-w-md flex flex-col">
-        <!-- Заголовок -->
-        <div class="flex items-center gap-3 mb-8">
-          <div
-            class="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary"
-          >
-            <i class="fa-solid fa-list-check text-xl"></i>
-          </div>
-          <h2 class="text-2xl font-bold">Выберите тип ответа</h2>
-        </div>
-
-        <!-- Типы ответов -->
-        <div class="flex-1 flex flex-col justify-start space-y-4">
-          <!-- Множественный выбор -->
-          <button
-            class="btn btn-info w-full h-16 text-lg gap-3 hover:scale-[1.02] transition-transform justify-start"
-            @click="openQuestionModal('Множественный выбор')"
-          >
-            <div class="flex items-center justify-center w-8 h-8 rounded-full bg-info-content/10">
-              <i class="fa-solid fa-list-ul text-info-content"></i>
-            </div>
-            <div class="flex flex-col items-start">
-              <span class="font-semibold">Множественный выбор</span>
-              <span class="text-sm opacity-70">Выберите один или несколько вариантов</span>
-            </div>
-          </button>
-
-          <!-- Текст -->
-          <button
-            class="btn btn-success w-full h-16 text-lg gap-3 hover:scale-[1.02] transition-transform justify-start"
-            @click="openQuestionModal('Текст')"
-          >
+      <!-- Модальное окно выбора типа -->
+      <div v-if="showTypeSelectionModal" class="modal modal-open">
+        <div class="modal-box max-w-md flex flex-col">
+          <div class="flex items-center gap-3 mb-8">
             <div
-              class="flex items-center justify-center w-8 h-8 rounded-full bg-success-content/10"
+              class="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary"
             >
-              <i class="fa-solid fa-font text-success-content"></i>
+              <i class="fa-solid fa-list-check text-xl"></i>
             </div>
-            <div class="flex flex-col items-start">
-              <span class="font-semibold">Текст</span>
-              <span class="text-sm opacity-70">Свободный текстовый ответ</span>
-            </div>
-          </button>
+            <h2 class="text-2xl font-bold">Выберите тип ответа</h2>
+          </div>
 
-          <!-- Шкала оценок -->
-          <button
-            class="btn btn-accent w-full h-16 text-lg gap-3 hover:scale-[1.02] transition-transform justify-start"
-            @click="openQuestionModal('Шкала оценок')"
-          >
-            <div class="flex items-center justify-center w-8 h-8 rounded-full bg-accent-content/10">
-              <i class="fa-solid fa-sliders text-accent-content"></i>
-            </div>
-            <div class="flex flex-col items-start">
-              <span class="font-semibold">Шкала оценок</span>
-              <span class="text-sm opacity-70">Оценка по шкале от 1 до 10</span>
-            </div>
-          </button>
-        </div>
+          <div class="flex-1 flex flex-col justify-start space-y-4">
+            <button
+              class="btn btn-info w-full h-16 text-lg gap-3 hover:scale-[1.02] transition-transform justify-start"
+              @click="openQuestionModal('Множественный выбор')"
+            >
+              <div class="flex items-center justify-center w-8 h-8 rounded-full bg-info-content/10">
+                <i class="fa-solid fa-list-ul text-info-content"></i>
+              </div>
+              <div class="flex flex-col items-start">
+                <span class="font-semibold">Множественный выбор</span>
+                <span class="text-sm opacity-70">Выберите один или несколько вариантов</span>
+              </div>
+            </button>
 
-        <!-- Кнопка отмены -->
-        <div class="modal-action mt-8">
-          <button class="btn btn-outline gap-2" @click="showTypeSelectionModal = false">
-            <i class="fa-solid fa-times"></i>
-            Отмена
-          </button>
+            <button
+              class="btn btn-success w-full h-16 text-lg gap-3 hover:scale-[1.02] transition-transform justify-start"
+              @click="openQuestionModal('Текст')"
+            >
+              <div
+                class="flex items-center justify-center w-8 h-8 rounded-full bg-success-content/10"
+              >
+                <i class="fa-solid fa-font text-success-content"></i>
+              </div>
+              <div class="flex flex-col items-start">
+                <span class="font-semibold">Текст</span>
+                <span class="text-sm opacity-70">Свободный текстовый ответ</span>
+              </div>
+            </button>
+
+            <button
+              class="btn btn-accent w-full h-16 text-lg gap-3 hover:scale-[1.02] transition-transform justify-start"
+              @click="openQuestionModal('Шкала оценок')"
+            >
+              <div
+                class="flex items-center justify-center w-8 h-8 rounded-full bg-accent-content/10"
+              >
+                <i class="fa-solid fa-sliders text-accent-content"></i>
+              </div>
+              <div class="flex flex-col items-start">
+                <span class="font-semibold">Шкала оценок</span>
+                <span class="text-sm opacity-70">Оценка по шкале от 1 до 10</span>
+              </div>
+            </button>
+          </div>
+
+          <div class="modal-action mt-8">
+            <button class="btn btn-outline gap-2" @click="showTypeSelectionModal = false">
+              <i class="fa-solid fa-times"></i>
+              Отмена
+            </button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Модальное окно для добавления вопроса -->
-    <div v-if="showQuestionModal" class="modal modal-open">
-      <div class="modal-box max-w-2xl">
-        <!-- Заголовок -->
-        <div class="flex items-center gap-3 mb-6">
-          <div
-            class="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary"
-          >
-            <i class="fa-solid fa-plus text-xl"></i>
-          </div>
-          <h2 class="text-2xl font-bold">Добавить вопрос</h2>
-        </div>
-
-        <!-- Основная форма -->
-        <div class="space-y-6">
-          <!-- Поле ввода вопроса -->
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text text-lg font-medium">Вопрос</span>
-            </label>
-            <input
-              v-model="newBlock.question"
-              placeholder="Введите текст вопроса..."
-              class="input input-bordered w-full h-12 text-lg"
-            />
+      <!-- Модальное окно добавления вопроса -->
+      <div v-if="showQuestionModal" class="modal modal-open">
+        <div class="modal-box max-w-2xl">
+          <div class="flex items-center gap-3 mb-6">
+            <div
+              class="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary"
+            >
+              <i class="fa-solid fa-plus text-xl"></i>
+            </div>
+            <h2 class="text-2xl font-bold">Добавить вопрос</h2>
           </div>
 
-          <!-- Поле для описания вопроса -->
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text text-lg font-medium">Описание (необязательно)</span>
-            </label>
-            <textarea
-              v-model="newBlock.description"
-              placeholder="Добавьте дополнительное описание вопроса..."
-              class="textarea textarea-bordered w-full h-24 text-base"
-            ></textarea>
-          </div>
-
-          <!-- Для шкалы оценок -->
-          <div v-if="selectedBlockType === 'Шкала оценок'" class="alert alert-info">
-            <i class="fa-solid fa-info-circle"></i>
-            <span>Шкала будет автоматически установлена между 1 и 10.</span>
-          </div>
-
-          <!-- Для множественного выбора -->
-          <div v-if="selectedBlockType === 'Множественный выбор'" class="space-y-4">
-            <div class="flex items-center justify-between">
-              <h4 class="text-lg font-semibold">Варианты ответов</h4>
-              <button @click="addOption" class="btn btn-primary btn-sm gap-2">
-                <i class="fa-solid fa-plus"></i>
-                Добавить вариант
-              </button>
+          <div class="space-y-6">
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text text-lg font-medium">Вопрос</span>
+              </label>
+              <input
+                v-model="newBlock.question"
+                placeholder="Введите текст вопроса..."
+                class="input input-bordered w-full h-12 text-lg"
+              />
             </div>
 
-            <div class="space-y-3">
-              <div
-                v-for="(option, index) in newBlock.options"
-                :key="index"
-                class="flex items-center gap-3 p-3 bg-base-200 rounded-lg"
-              >
-                <div
-                  class="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary font-medium"
-                >
-                  {{ index + 1 }}
-                </div>
-                <input
-                  v-model="newBlock.options[index]"
-                  placeholder="Введите вариант ответа..."
-                  class="input input-bordered flex-1 h-10"
-                />
-                <button
-                  v-if="newBlock.options.length > 2"
-                  @click="removeOption(index)"
-                  class="btn btn-error btn-sm btn-circle"
-                >
-                  <i class="fa-solid fa-times"></i>
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text text-lg font-medium">Описание (необязательно)</span>
+              </label>
+              <textarea
+                v-model="newBlock.description"
+                placeholder="Добавьте дополнительное описание вопроса..."
+                class="textarea textarea-bordered w-full h-24 text-base"
+              ></textarea>
+            </div>
+
+            <div v-if="selectedBlockType === 'Шкала оценок'" class="alert alert-info">
+              <i class="fa-solid fa-info-circle"></i>
+              <span>Шкала будет автоматически установлена между 1 и 10.</span>
+            </div>
+
+            <div v-if="selectedBlockType === 'Множественный выбор'" class="space-y-4">
+              <div class="flex items-center justify-between">
+                <h4 class="text-lg font-semibold">Варианты ответов</h4>
+                <button @click="addOption" class="btn btn-primary btn-sm gap-2">
+                  <i class="fa-solid fa-plus"></i>
+                  Добавить вариант
                 </button>
+              </div>
+
+              <div class="space-y-3">
+                <div
+                  v-for="(option, index) in newBlock.options"
+                  :key="index"
+                  class="flex items-center gap-3 p-3 bg-base-200 rounded-lg"
+                >
+                  <div
+                    class="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary font-medium"
+                  >
+                    {{ index + 1 }}
+                  </div>
+                  <input
+                    v-model="newBlock.options[index]"
+                    placeholder="Введите вариант ответа..."
+                    class="input input-bordered flex-1 h-10"
+                  />
+                  <button
+                    v-if="newBlock.options.length > 2"
+                    @click="removeOption(index)"
+                    class="btn btn-error btn-sm btn-circle"
+                  >
+                    <i class="fa-solid fa-times"></i>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- Кнопки действий -->
-        <div class="modal-action mt-8">
-          <button class="btn btn-outline gap-2" @click="closeQuestionModal">
-            <i class="fa-solid fa-times"></i>
-            Отмена
-          </button>
-          <button class="btn btn-primary gap-2" @click="addBlock">
-            <i class="fa-solid fa-check"></i>
-            Сохранить
-          </button>
+          <div class="modal-action mt-8">
+            <button class="btn btn-outline gap-2" @click="closeQuestionModal">
+              <i class="fa-solid fa-times"></i>
+              Отмена
+            </button>
+            <button class="btn btn-primary gap-2" @click="addBlock">
+              <i class="fa-solid fa-check"></i>
+              Сохранить
+            </button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Модальное окно для подтверждения удаления -->
-    <div v-if="showDeleteConfirmationModal" class="modal modal-open">
-      <div class="modal-box">
-        <h2 class="text-xl font-bold mb-4">Предупреждение</h2>
-        <p class="mb-4">Вы действительно хотите удалить этот вопрос?</p>
-        <div class="modal-action">
-          <button @click="cancelDeleteBlock" class="btn btn-outline">Отмена</button>
-          <button @click="confirmDeleteBlock" class="btn btn-error">Удалить</button>
+      <!-- Модальное окно подтверждения удаления -->
+      <div v-if="showDeleteConfirmationModal" class="modal modal-open">
+        <div class="modal-box">
+          <h2 class="text-xl font-bold mb-4">Предупреждение</h2>
+          <p class="mb-4">Вы действительно хотите удалить этот вопрос?</p>
+          <div class="modal-action">
+            <button @click="cancelDeleteBlock" class="btn btn-outline">Отмена</button>
+            <button @click="confirmDeleteBlock" class="btn btn-error">Удалить</button>
+          </div>
         </div>
       </div>
     </div>

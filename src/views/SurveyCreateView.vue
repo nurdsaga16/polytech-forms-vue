@@ -1,118 +1,161 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useSurveyStore } from '@/stores/useSurveyStore'
+import { useScheduleStore } from '@/stores/useScheduleStore'
 
-// Состояния для данных формы
+const surveyStore = useSurveyStore()
+const scheduleStore = useScheduleStore()
+
+// Состояния формы
 const surveyTitle = ref('')
 const surveyDescription = ref('')
 const selectedSchedule = ref('')
+const responseLimit = ref(null)
 const blocks = ref([])
 
-// Состояние для модальных окон
+// Состояния модальных окон
 const showTypeSelectionModal = ref(false)
 const showQuestionModal = ref(false)
 const showEditModal = ref(false)
-const showDeleteConfirmationModal = ref(false) // Добавлено
+const showDeleteConfirmationModal = ref(false)
 const selectedBlockType = ref('')
 const newBlock = ref({
   type: '',
   question: '',
+  description: '',
   options: [],
   scale: { min: 1, max: 10 },
 })
-
-// Состояние для редактирования вопроса
 const editingBlock = ref(null)
-
-// Состояние для удаления вопроса
-const blockToDeleteIndex = ref(null) // Добавлено
-
-// Состояние для отслеживания выбора шаблона
+const blockToDeleteIndex = ref(null)
 const isTemplateSelected = ref(false)
 
-// Список графиков (заглушка)
-const schedules = ref([
-  { id: 1, name: 'Производственная практика - ИС-21' },
-  { id: 2, name: 'Учебная практика - ИС-22' },
-  { id: 3, name: 'Преддипломная практика - ИС-23' },
-])
+// Используем schedules из стора вместо заглушки
+const schedules = computed(() => scheduleStore.schedules)
 
-// Функция для выбора шаблона
+// Загрузка расписаний при монтировании
+onMounted(async () => {
+  await scheduleStore.fetchSchedules()
+})
+
+// Функции управления интерфейсом
 function selectTemplate() {
   isTemplateSelected.value = true
 }
 
-// Открытие модального окна для выбора типа ответа
 function openTypeSelectionModal() {
   showTypeSelectionModal.value = true
 }
 
-// Открытие модального окна для добавления вопроса
 function openQuestionModal(type) {
   selectedBlockType.value = type
   newBlock.value.type = type
   showTypeSelectionModal.value = false
   showQuestionModal.value = true
 
-  // Инициализация данных в зависимости от типа блока
   if (type === 'Множественный выбор') {
     newBlock.value.options = ['', '']
   }
 }
 
-// Закрытие модального окна для добавления вопроса
 function closeQuestionModal() {
   showQuestionModal.value = false
   resetNewBlock()
 }
 
-// Добавление блока
 function addBlock() {
-  blocks.value.push({ ...newBlock.value })
+  const question = {
+    title: newBlock.value.question,
+    description: newBlock.value.description,
+    order: blocks.value.length + 1,
+    question_type: mapQuestionType(newBlock.value.type),
+  }
+
+  if (newBlock.value.type === 'Множественный выбор') {
+    question.answer_options = newBlock.value.options.map((option, index) => ({
+      title: option,
+      order: index + 1,
+    }))
+  }
+
+  blocks.value.push(question)
   closeQuestionModal()
 }
 
-// Открытие модального окна подтверждения удаления
-function openDeleteConfirmationModal(index) {
-  blockToDeleteIndex.value = index // Сохраняем индекс вопроса
-  showDeleteConfirmationModal.value = true
-}
-
-// Подтверждение удаления вопроса
-function confirmDeleteBlock() {
-  if (blockToDeleteIndex.value !== null) {
-    blocks.value.splice(blockToDeleteIndex.value, 1) // Удаляем вопрос
-    blockToDeleteIndex.value = null // Сбрасываем индекс
-    showDeleteConfirmationModal.value = false // Закрываем модальное окно
+function mapQuestionType(type) {
+  switch (type) {
+    case 'Текст':
+      return 'text'
+    case 'Шкала оценок':
+      return 'scale'
+    case 'Множественный выбор':
+      return 'multiple_choice'
+    default:
+      return 'text'
   }
 }
 
-// Отмена удаления вопроса
-function cancelDeleteBlock() {
-  blockToDeleteIndex.value = null // Сбрасываем индекс
-  showDeleteConfirmationModal.value = false // Закрываем модальное окно
+async function createSurvey() {
+  const surveyData = {
+    title: surveyTitle.value,
+    description: surveyDescription.value,
+    response_limit: responseLimit.value,
+    schedule_id: selectedSchedule.value,
+    questions: blocks.value.map((block, index) => ({
+      ...block,
+      order: index + 1,
+    })),
+  }
+
+  try {
+    await surveyStore.createSurvey(surveyData)
+    surveyTitle.value = ''
+    surveyDescription.value = ''
+    selectedSchedule.value = ''
+    blocks.value = []
+    isTemplateSelected.value = false
+    alert('Опрос успешно создан!')
+  } catch (error) {
+    alert(`Ошибка при создании опроса: ${surveyStore.error}`)
+  }
 }
 
-// Сброс данных нового блока
+function openDeleteConfirmationModal(index) {
+  blockToDeleteIndex.value = index
+  showDeleteConfirmationModal.value = true
+}
+
+function confirmDeleteBlock() {
+  if (blockToDeleteIndex.value !== null) {
+    blocks.value.splice(blockToDeleteIndex.value, 1)
+    blockToDeleteIndex.value = null
+    showDeleteConfirmationModal.value = false
+  }
+}
+
+function cancelDeleteBlock() {
+  blockToDeleteIndex.value = null
+  showDeleteConfirmationModal.value = false
+}
+
 function resetNewBlock() {
   newBlock.value = {
     type: '',
     question: '',
+    description: '',
     options: [],
     scale: { min: 1, max: 10 },
   }
 }
 
-// Добавление опции для множественного выбора
 function addOption() {
   newBlock.value.options.push('')
 }
 
-// Удаление опции для множественного выбора
 function removeOption(index) {
   newBlock.value.options.splice(index, 1)
 }
 
-// Функция для перемещения вопроса вверх
 function moveQuestionUp(index) {
   if (index > 0) {
     const temp = blocks.value[index]
@@ -121,7 +164,6 @@ function moveQuestionUp(index) {
   }
 }
 
-// Функция для перемещения вопроса вниз
 function moveQuestionDown(index) {
   if (index < blocks.value.length - 1) {
     const temp = blocks.value[index]
@@ -130,37 +172,60 @@ function moveQuestionDown(index) {
   }
 }
 
-// Функция для создания опроса
-function createSurvey() {
-  alert('Опрос создан!')
-  // Здесь можно добавить логику для отправки данных на сервер
-}
-
-// Функция для открытия модального окна редактирования
 function openEditModal(block, index) {
-  editingBlock.value = { ...block, index } // Сохраняем копию вопроса и его индекс
+  editingBlock.value = {
+    ...block,
+    index,
+    type: mapQuestionTypeToDisplay(block.question_type),
+  }
   showEditModal.value = true
 }
 
-// Функция для сохранения изменений
+function mapQuestionTypeToDisplay(type) {
+  switch (type) {
+    case 'text':
+      return 'Текст'
+    case 'scale':
+      return 'Оценка'
+    case 'multiple_choice':
+      return 'Множественный выбор'
+    default:
+      return 'Текст'
+  }
+}
+
 function saveEditedBlock() {
   if (editingBlock.value !== null) {
-    blocks.value[editingBlock.value.index] = {
-      ...editingBlock.value,
+    const updatedBlock = {
+      title: editingBlock.value.title,
+      description: editingBlock.value.description,
+      question_type: mapQuestionType(editingBlock.value.type),
+      order: editingBlock.value.order,
     }
+
+    if (editingBlock.value.type === 'Множественный выбор') {
+      updatedBlock.answer_options = editingBlock.value.answer_options.map((option, index) => ({
+        title: option.title,
+        order: index + 1,
+      }))
+    }
+
+    blocks.value[editingBlock.value.index] = updatedBlock
     showEditModal.value = false
     editingBlock.value = null
   }
 }
 
-// Функция для закрытия модального окна
 function closeEditModal() {
   showEditModal.value = false
   editingBlock.value = null
 }
 
-// Вычисляемое свойство для проверки, есть ли вопросы
-const isSurveyReady = computed(() => blocks.value.length > 0)
+const isSurveyReady = computed(
+  () => blocks.value.length > 0 && surveyTitle.value && selectedSchedule.value,
+)
+
+const isLoading = computed(() => surveyStore.loading)
 </script>
 
 <template>
@@ -173,7 +238,6 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
     >
       <div class="mx-auto max-w-[58rem] px-4 xl:px-10">
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <!-- Шаблон "Пустой" -->
           <div
             class="flex h-[140px] flex-grow cursor-pointer flex-col items-center rounded border border-zinc-600/50 px-4 pb-4 shadow pt-2"
             @click="selectTemplate"
@@ -181,24 +245,18 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
             <div class="flex grow items-center">Пустой</div>
             <button class="btn btn-primary w-full mt-4">Начать с нуля</button>
           </div>
-
-          <!-- Шаблон "Обзор продукта" -->
           <div
             class="flex h-[140px] flex-grow cursor-pointer flex-col items-center rounded border border-zinc-600/50 px-4 pb-4 shadow border-solid pt-4"
             @click="selectTemplate"
           >
             <div class="flex grow items-center">Обзор продукта</div>
           </div>
-
-          <!-- Шаблон "Отказ от продукта" -->
           <div
             class="flex h-[140px] flex-grow cursor-pointer flex-col items-center rounded border border-zinc-600/50 px-4 pb-4 shadow border-solid pt-4"
             @click="selectTemplate"
           >
             <div class="flex grow items-center">Отказ от продукта</div>
           </div>
-
-          <!-- Сообщение о новых шаблонах -->
           <div
             class="flex h-[140px] flex-grow flex-col items-center justify-center rounded border border-dashed border-zinc-600/50 p-2 md:col-span-1"
           >
@@ -218,12 +276,10 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
       </div>
     </div>
 
-    <!-- Форма для общих настроек опроса -->
+    <!-- Форма создания опроса -->
     <div v-if="isTemplateSelected" class="flex-grow py-8">
       <div class="mx-auto max-w-[58rem] px-4 xl:px-10">
-        <!-- Верхняя панель с навигацией и заголовком -->
         <div class="flex flex-col gap-4 mb-8">
-          <!-- Кнопка "Назад" -->
           <button
             class="btn btn-ghost gap-2 w-fit"
             type="button"
@@ -232,8 +288,6 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
             <i class="fa-solid fa-arrow-left"></i>
             Назад
           </button>
-
-          <!-- Поле ввода названия опроса -->
           <div class="w-full">
             <input
               v-model="surveyTitle"
@@ -245,7 +299,6 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
           </div>
         </div>
 
-        <!-- Поле ввода описания опроса -->
         <div class="mb-8">
           <textarea
             v-model="surveyDescription"
@@ -255,7 +308,23 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
           ></textarea>
         </div>
 
-        <!-- Выбор графика -->
+        <div class="mb-8">
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text text-lg font-medium">Лимит ответов</span>
+              <span class="label-text-alt text-base-content/50 text-sm whitespace-normal"
+                >(Оставьте пустым, чтобы не ставить ограничение (Не больше 255))</span
+              >
+            </label>
+            <input
+              v-model.number="responseLimit"
+              type="number"
+              min="1"
+              class="input input-bordered w-full h-12 text-lg"
+            />
+          </div>
+        </div>
+
         <div class="mb-8">
           <div class="form-control">
             <label class="label">
@@ -268,13 +337,12 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
             >
               <option value="" disabled>Выберите график...</option>
               <option v-for="schedule in schedules" :key="schedule.id" :value="schedule.id">
-                {{ schedule.name }}
+                {{ schedule.practice?.title }} - {{ schedule.group?.title }}
               </option>
             </select>
           </div>
         </div>
 
-        <!-- Кнопка "Добавить новый блок" -->
         <div class="mb-8">
           <button
             class="btn btn-primary w-full h-14 text-lg gap-2"
@@ -286,15 +354,13 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
           </button>
         </div>
 
-        <!-- Блоки вопросов -->
-        <div v-if="isTemplateSelected" class="blocks space-y-6">
+        <div class="blocks space-y-6">
           <div
             v-for="(block, index) in blocks"
             :key="index"
             class="card bg-base-100 shadow-lg hover:shadow-xl transition-all duration-300"
           >
             <div class="card-body">
-              <!-- Заголовок и кнопки управления -->
               <div class="flex justify-between items-start">
                 <div class="flex items-center gap-4">
                   <div
@@ -302,14 +368,12 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
                   >
                     {{ index + 1 }}
                   </div>
-                  <h3 class="text-xl font-bold">{{ block.question }}</h3>
+                  <h3 class="text-xl font-bold">{{ block.title }}</h3>
                 </div>
                 <div class="flex gap-2">
-                  <!-- Кнопка "Редактировать" -->
                   <button @click="openEditModal(block, index)" class="btn btn-ghost btn-sm">
                     <i class="fa-solid fa-pen-to-square text-base"></i>
                   </button>
-                  <!-- Кнопки перемещения -->
                   <div class="flex flex-col gap-1">
                     <button
                       @click="moveQuestionUp(index)"
@@ -326,7 +390,6 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
                       <i class="fa-solid fa-arrow-down text-base"></i>
                     </button>
                   </div>
-                  <!-- Кнопка "Удалить" -->
                   <button
                     @click="openDeleteConfirmationModal(index)"
                     class="btn btn-ghost btn-sm text-error"
@@ -336,32 +399,29 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
                 </div>
               </div>
 
-              <!-- Описание вопроса -->
               <div v-if="block.description" class="mb-4 text-base-content/70">
                 {{ block.description }}
               </div>
 
-              <!-- Тип вопроса -->
               <div class="badge badge-primary gap-2 text-sm">
                 <i class="fa-solid fa-tag"></i>
-                {{ block.type }}
+                {{ mapQuestionTypeToDisplay(block.question_type) }}
               </div>
 
-              <!-- Варианты ответов -->
-              <div v-if="block.type === 'Множественный выбор'" class="mt-6">
+              <div v-if="block.question_type === 'multiple_choice'" class="mt-6">
                 <h4 class="text-lg font-semibold mb-4">Варианты ответов:</h4>
                 <ul class="space-y-3">
                   <li
-                    v-for="(option, optionIndex) in block.options"
+                    v-for="(option, optionIndex) in block.answer_options"
                     :key="optionIndex"
                     class="flex items-center gap-3 p-3 bg-base-200 rounded-lg"
                   >
                     <div
                       class="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary font-medium"
                     >
-                      {{ optionIndex + 1 }}
+                      {{ option.order }}
                     </div>
-                    <span class="text-base">{{ option }}</span>
+                    <span class="text-base">{{ option.title }}</span>
                   </li>
                 </ul>
               </div>
@@ -369,24 +429,23 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
           </div>
         </div>
 
-        <!-- Кнопка "Создать опрос" -->
         <div class="mt-12">
           <button
             @click="createSurvey"
-            :disabled="!isSurveyReady"
+            :disabled="!isSurveyReady || isLoading"
             class="btn btn-primary w-full h-14 text-lg gap-2"
           >
-            <i class="fa-solid fa-check"></i>
-            Создать опрос
+            <i v-if="isLoading" class="fa-solid fa-spinner fa-spin"></i>
+            <i v-else class="fa-solid fa-check"></i>
+            {{ isLoading ? 'Создание...' : 'Создать опрос' }}
           </button>
         </div>
       </div>
     </div>
 
-    <!-- Модальное окно для редактирования вопроса -->
+    <!-- Модальное окно редактирования -->
     <div v-if="showEditModal" class="modal modal-open">
       <div class="modal-box max-w-2xl">
-        <!-- Заголовок -->
         <div class="flex items-center gap-3 mb-6">
           <div
             class="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary"
@@ -396,21 +455,18 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
           <h2 class="text-2xl font-bold">Редактировать вопрос</h2>
         </div>
 
-        <!-- Основная форма -->
         <div class="space-y-6">
-          <!-- Поле ввода вопроса -->
           <div class="form-control">
             <label class="label">
               <span class="label-text text-lg font-medium">Вопрос</span>
             </label>
             <input
-              v-model="editingBlock.question"
+              v-model="editingBlock.title"
               placeholder="Введите текст вопроса..."
               class="input input-bordered w-full h-12 text-lg"
             />
           </div>
 
-          <!-- Поле для описания вопроса -->
           <div class="form-control">
             <label class="label">
               <span class="label-text text-lg font-medium">Описание (необязательно)</span>
@@ -422,11 +478,18 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
             ></textarea>
           </div>
 
-          <!-- Редактирование вариантов ответов для типа "Множественный выбор" -->
           <div v-if="editingBlock.type === 'Множественный выбор'" class="space-y-4">
             <div class="flex items-center justify-between">
               <h4 class="text-lg font-semibold">Варианты ответов</h4>
-              <button @click="editingBlock.options.push('')" class="btn btn-success btn-sm gap-2">
+              <button
+                @click="
+                  editingBlock.answer_options.push({
+                    title: '',
+                    order: editingBlock.answer_options.length + 1,
+                  })
+                "
+                class="btn btn-success btn-sm gap-2"
+              >
                 <i class="fa-solid fa-plus"></i>
                 Добавить вариант
               </button>
@@ -434,23 +497,23 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
 
             <div class="space-y-3">
               <div
-                v-for="(option, optionIndex) in editingBlock.options"
+                v-for="(option, optionIndex) in editingBlock.answer_options"
                 :key="optionIndex"
                 class="flex items-center gap-3 p-3 bg-base-200 rounded-lg"
               >
                 <div
                   class="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary font-medium"
                 >
-                  {{ optionIndex + 1 }}
+                  {{ option.order }}
                 </div>
                 <input
-                  v-model="editingBlock.options[optionIndex]"
+                  v-model="editingBlock.answer_options[optionIndex].title"
                   placeholder="Введите вариант ответа..."
                   class="input input-bordered flex-1 h-10"
                 />
                 <button
-                  v-if="editingBlock.options.length > 2"
-                  @click="editingBlock.options.splice(optionIndex, 1)"
+                  v-if="editingBlock.answer_options.length > 2"
+                  @click="editingBlock.answer_options.splice(optionIndex, 1)"
                   class="btn btn-error btn-sm btn-circle"
                 >
                   <i class="fa-solid fa-times"></i>
@@ -460,7 +523,6 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
           </div>
         </div>
 
-        <!-- Кнопки действий -->
         <div class="modal-action mt-8">
           <button class="btn btn-outline gap-2" @click="closeEditModal">
             <i class="fa-solid fa-times"></i>
@@ -474,10 +536,9 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
       </div>
     </div>
 
-    <!-- Модальное окно для выбора типа ответа -->
+    <!-- Модальное окно выбора типа -->
     <div v-if="showTypeSelectionModal" class="modal modal-open">
       <div class="modal-box max-w-md flex flex-col">
-        <!-- Заголовок -->
         <div class="flex items-center gap-3 mb-8">
           <div
             class="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary"
@@ -487,9 +548,7 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
           <h2 class="text-2xl font-bold">Выберите тип ответа</h2>
         </div>
 
-        <!-- Типы ответов -->
         <div class="flex-1 flex flex-col justify-start space-y-4">
-          <!-- Множественный выбор -->
           <button
             class="btn btn-info w-full h-16 text-lg gap-3 hover:scale-[1.02] transition-transform justify-start"
             @click="openQuestionModal('Множественный выбор')"
@@ -503,7 +562,6 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
             </div>
           </button>
 
-          <!-- Текст -->
           <button
             class="btn btn-success w-full h-16 text-lg gap-3 hover:scale-[1.02] transition-transform justify-start"
             @click="openQuestionModal('Текст')"
@@ -519,7 +577,6 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
             </div>
           </button>
 
-          <!-- Шкала оценок -->
           <button
             class="btn btn-accent w-full h-16 text-lg gap-3 hover:scale-[1.02] transition-transform justify-start"
             @click="openQuestionModal('Шкала оценок')"
@@ -534,7 +591,6 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
           </button>
         </div>
 
-        <!-- Кнопка отмены -->
         <div class="modal-action mt-8">
           <button class="btn btn-outline gap-2" @click="showTypeSelectionModal = false">
             <i class="fa-solid fa-times"></i>
@@ -544,10 +600,9 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
       </div>
     </div>
 
-    <!-- Модальное окно для добавления вопроса -->
+    <!-- Модальное окно добавления вопроса -->
     <div v-if="showQuestionModal" class="modal modal-open">
       <div class="modal-box max-w-2xl">
-        <!-- Заголовок -->
         <div class="flex items-center gap-3 mb-6">
           <div
             class="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary"
@@ -557,9 +612,7 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
           <h2 class="text-2xl font-bold">Добавить вопрос</h2>
         </div>
 
-        <!-- Основная форма -->
         <div class="space-y-6">
-          <!-- Поле ввода вопроса -->
           <div class="form-control">
             <label class="label">
               <span class="label-text text-lg font-medium">Вопрос</span>
@@ -571,7 +624,6 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
             />
           </div>
 
-          <!-- Поле для описания вопроса -->
           <div class="form-control">
             <label class="label">
               <span class="label-text text-lg font-medium">Описание (необязательно)</span>
@@ -583,13 +635,11 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
             ></textarea>
           </div>
 
-          <!-- Для шкалы оценок -->
           <div v-if="selectedBlockType === 'Шкала оценок'" class="alert alert-info">
             <i class="fa-solid fa-info-circle"></i>
             <span>Шкала будет автоматически установлена между 1 и 10.</span>
           </div>
 
-          <!-- Для множественного выбора -->
           <div v-if="selectedBlockType === 'Множественный выбор'" class="space-y-4">
             <div class="flex items-center justify-between">
               <h4 class="text-lg font-semibold">Варианты ответов</h4>
@@ -627,7 +677,6 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
           </div>
         </div>
 
-        <!-- Кнопки действий -->
         <div class="modal-action mt-8">
           <button class="btn btn-outline gap-2" @click="closeQuestionModal">
             <i class="fa-solid fa-times"></i>
@@ -641,7 +690,7 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
       </div>
     </div>
 
-    <!-- Модальное окно для подтверждения удаления -->
+    <!-- Модальное окно подтверждения удаления -->
     <div v-if="showDeleteConfirmationModal" class="modal modal-open">
       <div class="modal-box">
         <h2 class="text-xl font-bold mb-4">Предупреждение</h2>
@@ -655,4 +704,6 @@ const isSurveyReady = computed(() => blocks.value.length > 0)
   </div>
 </template>
 
-<style scoped></style>
+<style scoped>
+/* Стили можно добавить по необходимости */
+</style>

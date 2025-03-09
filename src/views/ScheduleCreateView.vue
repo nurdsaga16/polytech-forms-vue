@@ -1,40 +1,44 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useScheduleStore } from '../stores/useScheduleStore'
+import { useGroupsStore } from '../stores/useGroupsStore'
+import { usePracticesStore } from '../stores/usePracticesStore'
+import { useAuthStore } from '../stores/useAuthStore'
 
-// Состояния для формы
+const router = useRouter()
+const scheduleStore = useScheduleStore()
+const groupsStore = useGroupsStore()
+const practicesStore = usePracticesStore()
+const authStore = useAuthStore()
+
 const schedule = ref({
-  practice: '',
-  teacher: '',
-  group: '',
-  startDate: '',
-  endDate: '',
+  user_id: authStore.authData?.userId,
+  practice_id: '',
+  group_id: '',
+  start_date: '',
+  end_date: '',
 })
 
-// Список практик (заглушка)
-const practices = [
-  { id: 1, name: 'Производственная практика' },
-  { id: 2, name: 'Учебная практика' },
-  { id: 3, name: 'Преддипломная практика' },
-]
+const error = ref('')
 
-// Список преподавателей (заглушка)
-const teachers = [
-  { id: 1, name: 'Иванов Иван Иванович' },
-  { id: 2, name: 'Петров Петр Петрович' },
-  { id: 3, name: 'Сидоров Сидор Сидорович' },
-]
+onMounted(async () => {
+  if (!authStore.authData?.userId) {
+    router.push('/login')
+    return
+  }
+  await Promise.all([groupsStore.fetchGroups(), practicesStore.fetchPractices()])
+})
 
-// Список групп (заглушка)
-const groups = [
-  { id: 1, name: 'ИС-21' },
-  { id: 2, name: 'ИС-22' },
-  { id: 3, name: 'ИС-23' },
-]
-
-// Функция для создания графика
-function createSchedule() {
-  // Здесь будет логика отправки данных на сервер
-  console.log('Создан график:', schedule.value)
+const createSchedule = async () => {
+  try {
+    error.value = ''
+    schedule.value.user_id = authStore.authData?.userId
+    await scheduleStore.createSchedule(schedule.value)
+    router.push('/schedules')
+  } catch (err) {
+    error.value = err.response?.data?.message || 'Ошибка при создании расписания'
+  }
 }
 </script>
 
@@ -51,8 +55,13 @@ function createSchedule() {
         <h1 class="text-2xl font-bold">Создание графика</h1>
       </div>
 
+      <!-- Загрузка -->
+      <div v-if="groupsStore.loading || practicesStore.loading" class="flex justify-center py-8">
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+
       <!-- Форма создания графика -->
-      <div class="card bg-base-100 shadow-lg">
+      <div v-else class="card bg-base-100 shadow-lg">
         <div class="card-body">
           <div class="space-y-6">
             <!-- Выбор практики -->
@@ -61,25 +70,17 @@ function createSchedule() {
                 <span class="label-text text-lg font-medium">Практика</span>
               </label>
               <select
-                v-model="schedule.practice"
+                v-model="schedule.practice_id"
                 class="select select-bordered w-full h-12 text-lg"
+                required
               >
                 <option value="" disabled selected>Выберите практику</option>
-                <option v-for="practice in practices" :key="practice.id" :value="practice.id">
-                  {{ practice.name }}
-                </option>
-              </select>
-            </div>
-
-            <!-- Выбор преподавателя -->
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text text-lg font-medium">Преподаватель</span>
-              </label>
-              <select v-model="schedule.teacher" class="select select-bordered w-full h-12 text-lg">
-                <option value="" disabled selected>Выберите преподавателя</option>
-                <option v-for="teacher in teachers" :key="teacher.id" :value="teacher.id">
-                  {{ teacher.name }}
+                <option
+                  v-for="practice in practicesStore.practices"
+                  :key="practice.id"
+                  :value="practice.id"
+                >
+                  {{ practice.title }}
                 </option>
               </select>
             </div>
@@ -89,10 +90,14 @@ function createSchedule() {
               <label class="label">
                 <span class="label-text text-lg font-medium">Группа</span>
               </label>
-              <select v-model="schedule.group" class="select select-bordered w-full h-12 text-lg">
+              <select
+                v-model="schedule.group_id"
+                class="select select-bordered w-full h-12 text-lg"
+                required
+              >
                 <option value="" disabled selected>Выберите группу</option>
-                <option v-for="group in groups" :key="group.id" :value="group.id">
-                  {{ group.name }}
+                <option v-for="group in groupsStore.groups" :key="group.id" :value="group.id">
+                  {{ group.title }}
                 </option>
               </select>
             </div>
@@ -105,9 +110,10 @@ function createSchedule() {
                   <span class="label-text text-lg font-medium">Дата начала</span>
                 </label>
                 <input
-                  v-model="schedule.startDate"
+                  v-model="schedule.start_date"
                   type="date"
                   class="input input-bordered w-full h-12 text-lg"
+                  required
                 />
               </div>
 
@@ -117,18 +123,30 @@ function createSchedule() {
                   <span class="label-text text-lg font-medium">Дата окончания</span>
                 </label>
                 <input
-                  v-model="schedule.endDate"
+                  v-model="schedule.end_date"
                   type="date"
                   class="input input-bordered w-full h-12 text-lg"
+                  required
                 />
               </div>
+            </div>
+
+            <!-- Ошибка -->
+            <div v-if="error" class="alert alert-error">
+              <i class="fa-solid fa-circle-exclamation"></i>
+              <span>{{ error }}</span>
             </div>
           </div>
 
           <!-- Кнопка создания -->
           <div class="card-actions justify-end mt-8">
-            <button class="btn btn-primary gap-2" @click="createSchedule">
-              <i class="fa-solid fa-check"></i>
+            <button
+              class="btn btn-primary gap-2"
+              @click="createSchedule"
+              :disabled="scheduleStore.loading"
+            >
+              <span v-if="scheduleStore.loading" class="loading loading-spinner loading-sm"></span>
+              <i v-else class="fa-solid fa-check"></i>
               Создать график
             </button>
           </div>

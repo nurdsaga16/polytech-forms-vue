@@ -1,61 +1,72 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
+import { useScheduleStore } from '../stores/useScheduleStore'
+import { useGroupsStore } from '../stores/useGroupsStore'
+import { usePracticesStore } from '../stores/usePracticesStore'
+import { useAuthStore } from '../stores/useAuthStore'
 
-const route = useRoute()
 const router = useRouter()
+const route = useRoute()
+const scheduleStore = useScheduleStore()
+const groupsStore = useGroupsStore()
+const practicesStore = usePracticesStore()
+const authStore = useAuthStore()
 
-// Состояния для формы
 const schedule = ref({
-  id: null,
-  practice: '',
-  teacher: '',
-  group: '',
-  startDate: '',
-  endDate: '',
+  user_id: authStore.authData?.userId,
+  practice_id: '',
+  group_id: '',
+  start_date: '',
+  end_date: '',
 })
 
-// Список практик (заглушка)
-const practices = [
-  { id: 1, name: 'Производственная практика' },
-  { id: 2, name: 'Учебная практика' },
-  { id: 3, name: 'Преддипломная практика' },
-]
+const error = ref('')
+const scheduleId = route.query.id
 
-// Список преподавателей (заглушка)
-const teachers = [
-  { id: 1, name: 'Иванов Иван Иванович' },
-  { id: 2, name: 'Петров Петр Петрович' },
-  { id: 3, name: 'Сидоров Сидор Сидорович' },
-]
-
-// Список групп (заглушка)
-const groups = [
-  { id: 1, name: 'ИС-21' },
-  { id: 2, name: 'ИС-22' },
-  { id: 3, name: 'ИС-23' },
-]
-
-// Загрузка данных графика
-onMounted(() => {
-  // Здесь будет запрос к API для получения данных графика
-  // Заглушка для демонстрации
-  const mockSchedule = {
-    id: route.params.id,
-    practice: 'Производственная практика',
-    teacher: 'Иванов И.И.',
-    group: 'ИС-21',
-    startDate: '2025-03-01',
-    endDate: '2025-03-15',
+onMounted(async () => {
+  if (!authStore.authData?.userId) {
+    router.push('/login')
+    return
   }
-  schedule.value = { ...mockSchedule }
+
+  if (!scheduleId) {
+    router.push('/schedules')
+    return
+  }
+
+  try {
+    // Загружаем все данные параллельно
+    const [scheduleData] = await Promise.all([
+      scheduleStore.fetchSchedule(scheduleId),
+      groupsStore.fetchGroups(),
+      practicesStore.fetchPractices(),
+    ])
+
+    if (scheduleData) {
+      schedule.value = {
+        user_id: authStore.authData.userId,
+        group_id: scheduleData.group.id,
+        practice_id: scheduleData.practice.id,
+        start_date: scheduleData.start_date,
+        end_date: scheduleData.end_date,
+      }
+    }
+  } catch (err) {
+    error.value = 'Ошибка при загрузке данных'
+    console.error(err)
+  }
 })
 
-// Функция для сохранения изменений
-function saveSchedule() {
-  // Здесь будет логика отправки данных на сервер
-  console.log('Сохранены изменения графика:', schedule.value)
-  router.push('/schedules')
+const saveSchedule = async () => {
+  try {
+    error.value = ''
+    schedule.value.user_id = authStore.authData?.userId
+    await scheduleStore.updateSchedule(scheduleId, schedule.value)
+    router.push('/schedules')
+  } catch (err) {
+    error.value = err.response?.data?.message || 'Ошибка при обновлении расписания'
+  }
 }
 </script>
 
@@ -72,8 +83,16 @@ function saveSchedule() {
         <h1 class="text-xl sm:text-2xl font-bold">Редактирование графика</h1>
       </div>
 
+      <!-- Загрузка -->
+      <div
+        v-if="scheduleStore.loading || groupsStore.loading || practicesStore.loading"
+        class="flex justify-center py-8"
+      >
+        <span class="loading loading-spinner loading-lg text-primary"></span>
+      </div>
+
       <!-- Форма редактирования графика -->
-      <div class="card bg-base-100 shadow-lg">
+      <div v-else class="card bg-base-100 shadow-lg">
         <div class="card-body p-3 sm:p-6">
           <div class="space-y-4 sm:space-y-6">
             <!-- Выбор практики -->
@@ -82,26 +101,16 @@ function saveSchedule() {
                 <span class="label-text text-base sm:text-lg font-medium">Практика</span>
               </label>
               <select
-                v-model="schedule.practice"
+                v-model="schedule.practice_id"
                 class="select select-bordered w-full h-10 sm:h-12 text-base sm:text-lg"
+                required
               >
-                <option v-for="practice in practices" :key="practice.id" :value="practice.id">
-                  {{ practice.name }}
-                </option>
-              </select>
-            </div>
-
-            <!-- Выбор преподавателя -->
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text text-base sm:text-lg font-medium">Преподаватель</span>
-              </label>
-              <select
-                v-model="schedule.teacher"
-                class="select select-bordered w-full h-10 sm:h-12 text-base sm:text-lg"
-              >
-                <option v-for="teacher in teachers" :key="teacher.id" :value="teacher.id">
-                  {{ teacher.name }}
+                <option
+                  v-for="practice in practicesStore.practices"
+                  :key="practice.id"
+                  :value="practice.id"
+                >
+                  {{ practice.title }}
                 </option>
               </select>
             </div>
@@ -112,11 +121,12 @@ function saveSchedule() {
                 <span class="label-text text-base sm:text-lg font-medium">Группа</span>
               </label>
               <select
-                v-model="schedule.group"
+                v-model="schedule.group_id"
                 class="select select-bordered w-full h-10 sm:h-12 text-base sm:text-lg"
+                required
               >
-                <option v-for="group in groups" :key="group.id" :value="group.id">
-                  {{ group.name }}
+                <option v-for="group in groupsStore.groups" :key="group.id" :value="group.id">
+                  {{ group.title }}
                 </option>
               </select>
             </div>
@@ -129,9 +139,10 @@ function saveSchedule() {
                   <span class="label-text text-base sm:text-lg font-medium">Дата начала</span>
                 </label>
                 <input
-                  v-model="schedule.startDate"
+                  v-model="schedule.start_date"
                   type="date"
                   class="input input-bordered w-full h-10 sm:h-12 text-base sm:text-lg"
+                  required
                 />
               </div>
 
@@ -141,11 +152,18 @@ function saveSchedule() {
                   <span class="label-text text-base sm:text-lg font-medium">Дата окончания</span>
                 </label>
                 <input
-                  v-model="schedule.endDate"
+                  v-model="schedule.end_date"
                   type="date"
                   class="input input-bordered w-full h-10 sm:h-12 text-base sm:text-lg"
+                  required
                 />
               </div>
+            </div>
+
+            <!-- Ошибка -->
+            <div v-if="error" class="alert alert-error">
+              <i class="fa-solid fa-circle-exclamation"></i>
+              <span>{{ error }}</span>
             </div>
           </div>
 
@@ -154,8 +172,13 @@ function saveSchedule() {
             <button class="btn btn-ghost btn-sm sm:btn-md" @click="router.push('/schedules')">
               Отмена
             </button>
-            <button class="btn btn-primary btn-sm sm:btn-md gap-2" @click="saveSchedule">
-              <i class="fa-solid fa-check"></i>
+            <button
+              class="btn btn-primary btn-sm sm:btn-md gap-2"
+              @click="saveSchedule"
+              :disabled="scheduleStore.loading"
+            >
+              <span v-if="scheduleStore.loading" class="loading loading-spinner loading-sm"></span>
+              <i v-else class="fa-solid fa-check"></i>
               Сохранить изменения
             </button>
           </div>

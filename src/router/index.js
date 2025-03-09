@@ -53,19 +53,19 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: '/survey/edit',
+      path: '/survey/edit/:id',
       name: 'survey-edit',
       component: SurveyEditView,
       meta: { requiresAuth: true },
     },
     {
-      path: '/survey',
+      path: '/survey/:id',
       name: 'survey',
       component: SurveyLayout,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: false },
     },
     {
-      path: '/survey/answer',
+      path: '/survey/answer/:id',
       name: 'survey-answer',
       component: SurveyAnswerView,
       meta: { requiresAuth: true },
@@ -101,7 +101,8 @@ router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
 
   // Если маршрут требует авторизации
-  if (to.meta.requiresAuth) {
+  if (to.meta.requiresAuth === true) {
+    // Проверяем только если явно true
     // Если пользователь не авторизован, перенаправляем на страницу входа
     if (!authStore.authData) {
       next('/login')
@@ -109,6 +110,7 @@ router.beforeEach((to, from, next) => {
       next()
     }
   } else {
+    // Для всех остальных маршрутов (включая /survey/:id) пропускаем без проверки
     next()
   }
 })
