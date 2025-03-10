@@ -55,13 +55,8 @@ const createSchedule = async () => {
         <h1 class="text-2xl font-bold">Создание графика</h1>
       </div>
 
-      <!-- Загрузка -->
-      <div v-if="groupsStore.loading || practicesStore.loading" class="flex justify-center py-8">
-        <span class="loading loading-spinner loading-lg text-primary"></span>
-      </div>
-
       <!-- Форма создания графика -->
-      <div v-else class="card bg-base-100 shadow-lg">
+      <div class="card bg-base-100 shadow-lg">
         <div class="card-body">
           <div class="space-y-6">
             <!-- Выбор практики -->

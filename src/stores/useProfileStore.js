@@ -5,6 +5,8 @@ import { useAuthStore } from './useAuthStore'
 
 export const useProfileStore = defineStore('profile', () => {
   const userData = ref(null)
+  const loading = ref(false)
+  const error = ref(null)
   const authStore = useAuthStore()
 
   const token = computed(() => authStore.authData?.token)
@@ -19,7 +21,14 @@ export const useProfileStore = defineStore('profile', () => {
       userData.value = response.data
     } catch (error) {
       console.error('Ошибка при загрузке данных пользователя:', error)
+    } finally {
+      loading.value = false
     }
+  }
+
+  const clearUserData = () => {
+    userData.value = null
+    error.value = null
   }
 
   async function updateProfile(full_name, email, password, avatar) {
@@ -41,7 +50,10 @@ export const useProfileStore = defineStore('profile', () => {
 
   return {
     userData,
+    loading,
+    error,
     fetchUserData,
+    clearUserData,
     updateProfile,
   }
 })
