@@ -2,16 +2,18 @@
 import { ref, computed, onMounted } from 'vue'
 import { useSurveyStore } from '@/stores/useSurveyStore'
 import { useScheduleStore } from '@/stores/useScheduleStore'
+import { useRouter } from 'vue-router'
 
 const surveyStore = useSurveyStore()
 const scheduleStore = useScheduleStore()
+const router = useRouter()
 
 // Состояния формы
 const surveyTitle = ref('')
 const surveyDescription = ref('')
 const selectedSchedule = ref('')
 const responseLimit = ref(null)
-const blocks = ref([])
+const blocks = ref([]) // Локальные блоки для отображения
 
 // Состояния модальных окон
 const showTypeSelectionModal = ref(false)
@@ -30,7 +32,10 @@ const editingBlock = ref(null)
 const blockToDeleteIndex = ref(null)
 const isTemplateSelected = ref(false)
 
-// Используем schedules из стора вместо заглушки
+// Состояние для уведомления
+const showSuccessToast = ref(false)
+
+// Используем schedules из стора
 const schedules = computed(() => scheduleStore.schedules)
 
 // Загрузка расписаний при монтировании
@@ -63,7 +68,7 @@ function closeQuestionModal() {
   resetNewBlock()
 }
 
-function addBlock() {
+async function addBlock() {
   const question = {
     title: newBlock.value.question,
     description: newBlock.value.description,
@@ -101,20 +106,45 @@ async function createSurvey() {
     description: surveyDescription.value,
     response_limit: responseLimit.value,
     schedule_id: selectedSchedule.value,
-    questions: blocks.value.map((block, index) => ({
-      ...block,
-      order: index + 1,
-    })),
+    active: true, // Предполагаем значение по умолчанию
   }
 
   try {
-    await surveyStore.createSurvey(surveyData)
+    // Создаем опрос
+    const survey = await surveyStore.createSurvey(surveyData)
+
+    // Создаем вопросы и варианты ответов
+    for (const block of blocks.value) {
+      const questionData = {
+        survey_id: survey.id,
+        title: block.title,
+        description: block.description,
+        question_type: block.question_type,
+        order: block.order,
+      }
+      const question = await surveyStore.createQuestion(questionData)
+
+      if (block.question_type === 'multiple_choice' && block.answer_options) {
+        for (const option of block.answer_options) {
+          const optionData = {
+            question_id: question.id,
+            title: option.title,
+            order: option.order,
+          }
+          await surveyStore.createAnswerOption(optionData)
+        }
+      }
+    }
+
+    // Сбрасываем форму
     surveyTitle.value = ''
     surveyDescription.value = ''
     selectedSchedule.value = ''
     blocks.value = []
-    isTemplateSelected.value = false
-    alert('Опрос успешно создан!')
+
+    // Показываем уведомление и перенаправляем
+    showSuccessToast.value = true
+    router.push('/surveys')
   } catch (error) {
     alert(`Ошибка при создании опроса: ${surveyStore.error}`)
   }
@@ -186,7 +216,7 @@ function mapQuestionTypeToDisplay(type) {
     case 'text':
       return 'Текст'
     case 'scale':
-      return 'Оценка'
+      return 'Шкала оценок'
     case 'multiple_choice':
       return 'Множественный выбор'
     default:
@@ -194,7 +224,7 @@ function mapQuestionTypeToDisplay(type) {
   }
 }
 
-function saveEditedBlock() {
+async function saveEditedBlock() {
   if (editingBlock.value !== null) {
     const updatedBlock = {
       title: editingBlock.value.title,
@@ -229,7 +259,27 @@ const isLoading = computed(() => surveyStore.loading)
 </script>
 
 <template>
-  <div class="survey-builder justify-center items-center">
+  <div class="survey-builder justify-center items-center relative">
+    <!-- Toast уведомление -->
+    <div v-if="showSuccessToast" class="toast toast-top toast-end z-50">
+      <div class="alert alert-success">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="stroke-current shrink-0 h-6 w-6"
+          fill="none"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+        <span>Опрос успешно создан!</span>
+      </div>
+    </div>
+
     <!-- Выбор шаблона -->
     <div
       v-if="!isTemplateSelected"
@@ -705,5 +755,19 @@ const isLoading = computed(() => surveyStore.loading)
 </template>
 
 <style scoped>
-/* Стили можно добавить по необходимости */
+/* Добавляем стили для плавного появления уведомления */
+.toast {
+  animation: slideIn 0.5s ease-in-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
 </style>

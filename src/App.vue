@@ -1,14 +1,16 @@
 <script setup>
 import { useRoute } from 'vue-router'
-import { ref, watch, computed } from 'vue'
+import { ref, computed, watch } from 'vue' // Изменяем ref на computed
 import { useAuthStore } from './stores/useAuthStore'
 import { useProfileStore } from './stores/useProfileStore'
 
 const route = useRoute()
-const isSurveyPage = route.name === 'survey'
-const isNotFoundPage = route.name === 'not-found'
 const authStore = useAuthStore()
 const profileStore = useProfileStore()
+
+// Делаем isSurveyPage и isNotFoundPage реактивными через computed
+const isSurveyPage = computed(() => route.name === 'survey')
+const isNotFoundPage = computed(() => route.name === 'not-found')
 
 // Состояние темы
 const theme = ref(localStorage.getItem('theme') || 'night')
@@ -45,48 +47,7 @@ watch(
 </script>
 
 <template>
-  <!-- Экран загрузки -->
-  <div
-    v-if="profileStore.loading"
-    class="fixed inset-0 bg-base-100 z-50 flex items-center justify-center"
-  >
-    <div class="relative">
-      <!-- Основной спиннер -->
-      <div
-        class="w-16 h-16 rounded-full border-4 border-primary/20 animate-[spin_3s_linear_infinite]"
-      >
-        <div
-          class="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-[spin_1.5s_ease-in-out_infinite]"
-        ></div>
-      </div>
-
-      <!-- Пульсирующие круги -->
-      <div class="absolute inset-0 animate-[pulse_2s_ease-in-out_infinite]">
-        <div class="w-16 h-16 rounded-full bg-primary/10"></div>
-      </div>
-      <div class="absolute inset-0 animate-[pulse_2s_ease-in-out_infinite_0.5s]">
-        <div class="w-16 h-16 rounded-full bg-primary/5"></div>
-      </div>
-    </div>
-
-    <!-- Текст загрузки с анимацией -->
-    <div class="mt-8 text-lg font-medium text-base-content/70">
-      <span class="inline-block animate-[bounce_1s_ease-in-out_infinite]">З</span>
-      <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.1s]">а</span>
-      <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.2s]">г</span>
-      <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.3s]">р</span>
-      <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.4s]">у</span>
-      <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.5s]">з</span>
-      <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.6s]">к</span>
-      <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.7s]">а</span>
-      <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.8s]">.</span>
-      <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.9s]">.</span>
-      <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_1s]">.</span>
-    </div>
-
-    <!-- Дополнительный текст -->
-    <p class="mt-2 text-sm text-base-content/50">Пожалуйста, подождите</p>
-  </div>
+  <!-- Основное содержимое -->
   <div class="wrapper">
     <header v-if="!isSurveyPage && !isNotFoundPage" class="navbar bg-base-100 shadow-lg">
       <div class="navbar-start">
@@ -126,7 +87,6 @@ watch(
           </ul>
         </div>
         <RouterLink to="/" class="flex items-center gap-2">
-          <!-- <img class="w-10 h-10" src="./assets/img/logo-polytech.svg" alt="Polytech Forms" /> -->
           <span class="text-xl font-bold hidden sm:block">Polytech Forms</span>
         </RouterLink>
       </div>
@@ -183,12 +143,16 @@ watch(
           <div class="dropdown dropdown-end">
             <div tabindex="0" role="button" class="btn btn-ghost btn-circle avatar">
               <div class="w-10 rounded-full">
+                <!-- Анимация загрузки аватарки -->
+                <div
+                  v-if="profileStore.loading || !profileStore.userData?.avatar"
+                  class="w-10 h-10 bg-base-300 rounded-full animate-pulse"
+                ></div>
                 <img
-                  :src="
-                    profileStore.userData?.avatar ||
-                    'https://img.daisyui.com/images/stock/photo-1534528741775-53994a69daeb.webp'
-                  "
+                  v-else
+                  :src="profileStore.userData.avatar"
                   alt="Avatar"
+                  class="w-full h-full object-cover"
                 />
               </div>
             </div>
@@ -224,7 +188,6 @@ watch(
     >
       <aside>
         <div class="flex items-center gap-2 mb-2">
-          <!-- <img class="w-8 h-8" src="./assets/img/logo-polytech.svg" alt="Polytech Forms" /> -->
           <p class="font-bold">Polytech Forms</p>
         </div>
         <p>Copyright © {{ new Date().getFullYear() }} - Все права защищены</p>

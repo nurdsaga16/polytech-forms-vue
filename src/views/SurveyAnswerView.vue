@@ -337,7 +337,8 @@ const prevPage = () => {
             class="card bg-base-100 shadow-xl hover:shadow-2xl transition-all duration-300"
           >
             <div class="card-body">
-              <h3 class="card-title text-xl mb-6">{{ question.title }}</h3>
+              <h3 class="card-title text-xl">{{ question.title }}</h3>
+              <p class="text-base-content/70 mb-4">{{ question.description }}</p>
 
               <!-- Множественный выбор -->
               <div v-if="question.question_type === 'multiple_choice'" class="space-y-6">

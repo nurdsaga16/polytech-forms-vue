@@ -13,8 +13,9 @@ const scheduleStore = useScheduleStore()
 const surveyTitle = ref('')
 const surveyDescription = ref('')
 const selectedSchedule = ref('')
-const responseLimit = ref(100)
-const blocks = ref([])
+const responseLimit = ref(null)
+const blocks = ref([]) // Локальные изменения
+const originalBlocks = ref([]) // Исходное состояние с сервера
 
 // Состояния модальных окон
 const showTypeSelectionModal = ref(false)
@@ -39,8 +40,6 @@ const surveyId = route.params.id
 const schedules = computed(() => scheduleStore.schedules)
 const schedulesLoading = computed(() => scheduleStore.loading)
 const schedulesError = computed(() => scheduleStore.error)
-const surveyLoading = computed(() => surveyStore.loading)
-const surveyError = computed(() => surveyStore.error)
 
 // Загрузка данных при монтировании
 onMounted(async () => {
@@ -60,27 +59,30 @@ onMounted(async () => {
     if (surveyData) {
       surveyTitle.value = surveyData.title || ''
       surveyDescription.value = surveyData.description || ''
-      responseLimit.value = surveyData.response_limit || 100
-      selectedSchedule.value = surveyData.schedule?.id || '' // Исправлено: берем schedule.id
-      blocks.value = surveyData.questions
+      responseLimit.value = surveyData.response_limit || null
+      selectedSchedule.value = surveyData.schedule?.id || ''
+      const questions = surveyData.questions
         ? surveyData.questions.map((question) => ({
+            id: question.id,
             title: question.title,
             description: question.description || '',
             order: question.order,
             question_type: question.question_type,
             answer_options: question.answer_options
               ? question.answer_options.map((option) => ({
+                  id: option.id,
                   title: option.title,
                   order: option.order,
                 }))
               : [],
           }))
         : []
+      blocks.value = JSON.parse(JSON.stringify(questions))
+      originalBlocks.value = JSON.parse(JSON.stringify(questions))
     } else {
       throw new Error('Данные опроса не получены')
     }
 
-    // Проверка, есть ли выбранный график в списке расписаний
     const scheduleExists = schedules.value.some((s) => s.id === selectedSchedule.value)
     if (!scheduleExists) {
       console.warn(`График с ID ${selectedSchedule.value} не найден в списке расписаний`)
@@ -112,19 +114,22 @@ function closeQuestionModal() {
 }
 
 function addBlock() {
-  const question = {
+  const block = {
+    id: null,
     title: newBlock.value.question,
     description: newBlock.value.description,
     order: blocks.value.length + 1,
     question_type: mapQuestionType(newBlock.value.type),
+    answer_options:
+      newBlock.value.type === 'Множественный выбор'
+        ? newBlock.value.options.map((option, index) => ({
+            id: null,
+            title: option,
+            order: index + 1,
+          }))
+        : [],
   }
-  if (newBlock.value.type === 'Множественный выбор') {
-    question.answer_options = newBlock.value.options.map((option, index) => ({
-      title: option,
-      order: index + 1,
-    }))
-  }
-  blocks.value.push(question)
+  blocks.value.push(block)
   closeQuestionModal()
 }
 
@@ -146,19 +151,140 @@ async function saveSurvey() {
     title: surveyTitle.value,
     description: surveyDescription.value,
     response_limit: responseLimit.value,
-    schedule_id: selectedSchedule.value, // Отправляем только ID графика
-    questions: blocks.value.map((block, index) => ({
-      ...block,
-      order: index + 1,
-    })),
+    schedule_id: selectedSchedule.value,
   }
 
   try {
-    console.log('Сохранение опроса:', surveyData)
+    console.log('Обновление опроса:', surveyData)
     await surveyStore.updateSurvey(surveyId, surveyData)
-    router.push('/surveys')
+
+    // Удаление вопросов, которые были удалены локально
+    const deletedBlocks = originalBlocks.value.filter(
+      (ob) => !blocks.value.some((b) => b.id === ob.id && ob.id !== null),
+    )
+    for (const deletedBlock of deletedBlocks) {
+      console.log('Удаление вопроса:', deletedBlock.id)
+      await surveyStore.deleteQuestion(deletedBlock.id)
+    }
+
+    // Синхронизация вопросов и вариантов ответа
+    for (let i = 0; i < blocks.value.length; i++) {
+      const block = blocks.value[i]
+      const originalBlock = originalBlocks.value.find((b) => b.id === block.id) || {}
+
+      // Создание нового вопроса
+      if (!block.id) {
+        const questionData = {
+          survey_id: surveyId,
+          title: block.title,
+          description: block.description,
+          order: block.order,
+          question_type: block.question_type,
+        }
+        console.log('Создание нового вопроса:', questionData)
+        const createdQuestion = await surveyStore.createQuestion(questionData)
+        block.id = createdQuestion.id
+
+        if (block.question_type === 'multiple_choice') {
+          block.answer_options = await Promise.all(
+            block.answer_options.map(async (option, index) => {
+              const optionData = {
+                question_id: block.id,
+                title: option.title,
+                order: option.order || index + 1,
+              }
+              console.log('Создание нового варианта:', optionData)
+              const createdOption = await surveyStore.createAnswerOption(optionData)
+              return {
+                id: createdOption.id,
+                title: createdOption.title,
+                order: createdOption.order,
+              }
+            }),
+          )
+        }
+      } else {
+        // Проверка изменений вопроса
+        const questionChanged =
+          block.title !== originalBlock.title ||
+          block.description !== originalBlock.description ||
+          block.order !== originalBlock.order ||
+          block.question_type !== originalBlock.question_type
+
+        if (questionChanged) {
+          const updatedQuestionData = {
+            survey_id: surveyId,
+            title: block.title,
+            description: block.description,
+            order: block.order,
+            question_type: block.question_type,
+          }
+          console.log('Обновление вопроса:', updatedQuestionData)
+          await surveyStore.updateQuestion(block.id, updatedQuestionData)
+        } else {
+          console.log(`Вопрос с ID ${block.id} не изменился`)
+        }
+
+        // Обработка вариантов ответа для multiple_choice
+        if (block.question_type === 'multiple_choice') {
+          const existingOptions = block.answer_options.filter((opt) => opt.id)
+          const newOptions = block.answer_options.filter((opt) => !opt.id)
+
+          // Удаление вариантов ответа, которые были удалены локально
+          const deletedOptions =
+            originalBlock.answer_options?.filter(
+              (oo) => !existingOptions.some((eo) => eo.id === oo.id),
+            ) || []
+          for (const deletedOption of deletedOptions) {
+            console.log('Удаление варианта ответа:', deletedOption.id)
+            await surveyStore.deleteAnswerOption(deletedOption.id)
+          }
+
+          // Обновление существующих вариантов
+          for (const option of existingOptions) {
+            const originalOption = originalBlock.answer_options?.find((o) => o.id === option.id)
+            if (!originalOption) {
+              console.warn(`Исходный вариант с ID ${option.id} не найден`)
+              continue
+            }
+            if (option.title !== originalOption.title || option.order !== originalOption.order) {
+              console.log('Обновление варианта:', {
+                id: option.id,
+                title: option.title,
+                order: option.order,
+              })
+              await surveyStore.updateAnswerOption(option.id, {
+                title: option.title,
+                order: option.order,
+              })
+            } else {
+              console.log(`Вариант с ID ${option.id} не изменился`)
+            }
+          }
+
+          // Создание новых вариантов
+          for (const option of newOptions) {
+            const optionData = {
+              question_id: block.id,
+              title: option.title,
+              order: option.order,
+            }
+            console.log('Создание нового варианта:', optionData)
+            const createdOption = await surveyStore.createAnswerOption(optionData)
+            option.id = createdOption.id
+            option.title = createdOption.title
+            option.order = createdOption.order
+          }
+        }
+      }
+    }
+
+    // Обновляем исходное состояние после успешного сохранения
+    originalBlocks.value = JSON.parse(JSON.stringify(blocks.value))
+    router.push(`/survey/answer/${surveyId}`)
   } catch (error) {
-    alert(`Ошибка при обновлении опроса: ${surveyStore.error || 'Неизвестная ошибка'}`)
+    console.error('Ошибка при сохранении:', error)
+    alert(`Ошибка при обновлении опроса: ${surveyStore.error || error.message}`)
   }
 }
 
@@ -170,6 +296,10 @@ function openDeleteConfirmationModal(index) {
 function confirmDeleteBlock() {
   if (blockToDeleteIndex.value !== null) {
     blocks.value.splice(blockToDeleteIndex.value, 1)
+    // Пересчитываем order для оставшихся вопросов
+    blocks.value.forEach((block, index) => {
+      block.order = index + 1
+    })
     blockToDeleteIndex.value = null
     showDeleteConfirmationModal.value = false
   }
@@ -203,6 +333,8 @@ function moveQuestionUp(index) {
     const temp = blocks.value[index]
     blocks.value[index] = blocks.value[index - 1]
     blocks.value[index - 1] = temp
+    blocks.value[index].order = index + 1
+    blocks.value[index - 1].order = index
   }
 }
 
@@ -211,16 +343,9 @@ function moveQuestionDown(index) {
     const temp = blocks.value[index]
     blocks.value[index] = blocks.value[index + 1]
     blocks.value[index + 1] = temp
+    blocks.value[index].order = index + 1
+    blocks.value[index + 1].order = index + 2
   }
-}
-
-function openEditModal(block, index) {
-  editingBlock.value = {
-    ...block,
-    index,
-    type: mapQuestionTypeToDisplay(block.question_type),
-  }
-  showEditModal.value = true
 }
 
 function mapQuestionTypeToDisplay(type) {
@@ -236,24 +361,44 @@ function mapQuestionTypeToDisplay(type) {
   }
 }
 
-function saveEditedBlock() {
-  if (editingBlock.value !== null) {
-    const updatedBlock = {
-      title: editingBlock.value.title,
-      description: editingBlock.value.description,
-      question_type: mapQuestionType(editingBlock.value.type),
-      order: editingBlock.value.order,
-    }
-    if (editingBlock.value.type === 'Множественный выбор') {
-      updatedBlock.answer_options = editingBlock.value.answer_options.map((option, index) => ({
-        title: option.title,
-        order: index + 1,
-      }))
-    }
-    blocks.value[editingBlock.value.index] = updatedBlock
-    showEditModal.value = false
-    editingBlock.value = null
+const originalEditingBlock = ref(null)
+
+function openEditModal(block, index) {
+  originalEditingBlock.value = JSON.parse(JSON.stringify(block))
+  editingBlock.value = {
+    ...block,
+    index,
+    type: mapQuestionTypeToDisplay(block.question_type),
   }
+  showEditModal.value = true
+}
+
+function saveEditedBlock() {
+  if (!editingBlock.value) {
+    console.warn('editingBlock.value is null or undefined')
+    return
+  }
+
+  const currentBlock = { ...editingBlock.value }
+  const newBlock = {
+    id: currentBlock.id,
+    title: currentBlock.title,
+    description: currentBlock.description,
+    order: currentBlock.order,
+    question_type: mapQuestionType(currentBlock.type),
+    answer_options:
+      currentBlock.type === 'Множественный выбор'
+        ? currentBlock.answer_options.map((opt, index) => ({
+            id: opt.id,
+            title: opt.title,
+            order: index + 1, // Пересчитываем order локально
+          }))
+        : currentBlock.answer_options || [],
+  }
+  blocks.value[currentBlock.index] = newBlock
+  showEditModal.value = false
+  editingBlock.value = null
+  originalEditingBlock.value = null
 }
 
 function closeEditModal() {
@@ -513,6 +658,7 @@ const isLoading = computed(() => surveyStore.loading || scheduleStore.loading)
                 <button
                   @click="
                     editingBlock.answer_options.push({
+                      id: null,
                       title: '',
                       order: editingBlock.answer_options.length + 1,
                     })
@@ -533,7 +679,7 @@ const isLoading = computed(() => surveyStore.loading || scheduleStore.loading)
                   <div
                     class="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary font-medium"
                   >
-                    {{ option.order }}
+                    {{ optionIndex + 1 }}
                   </div>
                   <input
                     v-model="editingBlock.answer_options[optionIndex].title"
