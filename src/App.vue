@@ -87,7 +87,14 @@ watch(
           </ul>
         </div>
         <RouterLink to="/" class="flex items-center gap-2">
-          <span class="text-xl font-bold hidden sm:block">Polytech Forms</span>
+          <img
+            src="./assets/img/logo-polytech.svg"
+            alt="Polytech Forms"
+            class="w-8 inline-block align-middle logo"
+          />
+          <span class="text-2xl font-bold text-white hidden sm:inline-block align-middle logo"
+            >Forms</span
+          >
         </RouterLink>
       </div>
       <div class="navbar-center hidden lg:flex" v-if="authStore.authData">
@@ -111,7 +118,7 @@ watch(
           <input
             type="checkbox"
             class="theme-controller"
-            :checked="theme === 'winter'"
+            :checked="theme === 'light'"
             @change="toggleTheme"
           />
           <svg
@@ -188,7 +195,14 @@ watch(
     >
       <aside>
         <div class="flex items-center gap-2 mb-2">
-          <p class="font-bold">Polytech Forms</p>
+          <img
+            src="./assets/img/logo-polytech.svg"
+            alt="Polytech Forms"
+            class="w-6 inline-block align-middle logo"
+          />
+          <span class="text-xl font-bold text-white hidden sm:inline-block align-middle logo"
+            >Forms</span
+          >
         </div>
         <p>Copyright © {{ new Date().getFullYear() }} - Все права защищены</p>
       </aside>

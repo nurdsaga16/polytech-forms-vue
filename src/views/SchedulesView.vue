@@ -1,10 +1,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import { useScheduleStore } from '../stores/useScheduleStore'
+import { useAuthStore } from '../stores/useAuthStore'
 
-const router = useRouter()
 const scheduleStore = useScheduleStore()
+const authStore = useAuthStore()
 
 const showDeleteModal = ref(false)
 const selectedSchedule = ref(null)
@@ -132,226 +132,247 @@ const deleteSchedule = async () => {
 <template>
   <div class="schedule-view py-4 sm:py-8">
     <div class="mx-auto max-w-4xl px-2 sm:px-4">
-      <!-- Заголовок -->
+      <!-- Проверка верификации -->
       <div
-        class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-0 mb-6 sm:mb-8"
+        v-if="!authStore.emailVerified"
+        class="alert mb-8 p-4 rounded-2xl shadow-md transition-all duration-300 border-2 border-warning bg-warning/40 text-warning-dark"
       >
         <div class="flex items-center gap-3">
-          <div
-            class="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-primary/10 text-primary"
-          >
-            <i class="fa-solid fa-calendar text-lg sm:text-xl"></i>
-          </div>
-          <h1 class="text-xl sm:text-2xl font-bold">Графики практик</h1>
+          <i class="fa-solid fa-envelope text-lg sm:text-xl"></i>
+          <span class="text-sm sm:text-base">
+            Для доступа к этой странице необходимо подтвердить вашу почту. Перейдите на
+            <RouterLink
+              to="/profile"
+              class="underline text-primary transition-colors duration-200 hover:text-primary-dark"
+            >
+              страницу профиля </RouterLink
+            >, чтобы отправить письмо для подтверждения.
+          </span>
         </div>
-        <RouterLink to="/schedule/create" class="btn btn-primary btn-sm sm:btn-md gap-2">
-          <i class="fa-solid fa-plus"></i>
-          Создать график
-        </RouterLink>
       </div>
 
-      <!-- Загрузка -->
-      <div
-        v-if="scheduleStore.loading"
-        class="min-h-[60vh] flex flex-col items-center justify-center"
-      >
-        <div class="relative">
-          <!-- Основной спиннер -->
-          <div
-            class="w-16 h-16 rounded-full border-4 border-primary/20 animate-[spin_3s_linear_infinite]"
-          >
+      <!-- Заголовок -->
+      <div v-if="authStore.emailVerified">
+        <div
+          class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-0 mb-6 sm:mb-8"
+        >
+          <div class="flex items-center gap-3">
             <div
-              class="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-[spin_1.5s_ease-in-out_infinite]"
-            ></div>
+              class="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-primary/10 text-primary"
+            >
+              <i class="fa-solid fa-calendar text-lg sm:text-xl"></i>
+            </div>
+            <h1 class="text-xl sm:text-2xl font-bold">Графики практик</h1>
           </div>
-
-          <!-- Пульсирующие круги -->
-          <div class="absolute inset-0 animate-[pulse_2s_ease-in-out_infinite]">
-            <div class="w-16 h-16 rounded-full bg-primary/10"></div>
-          </div>
-          <div class="absolute inset-0 animate-[pulse_2s_ease-in-out_infinite_0.5s]">
-            <div class="w-16 h-16 rounded-full bg-primary/5"></div>
-          </div>
+          <RouterLink to="/schedule/create" class="btn btn-primary btn-sm sm:btn-md gap-2">
+            <i class="fa-solid fa-plus"></i>
+            Создать график
+          </RouterLink>
         </div>
 
-        <!-- Текст загрузки с анимацией -->
-        <div class="mt-8 text-lg font-medium text-base-content/70">
-          <span class="inline-block animate-[bounce_1s_ease-in-out_infinite]">З</span>
-          <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.1s]">а</span>
-          <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.2s]">г</span>
-          <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.3s]">р</span>
-          <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.4s]">у</span>
-          <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.5s]">з</span>
-          <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.6s]">к</span>
-          <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.7s]">а</span>
-          <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.8s]">.</span>
-          <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.9s]">.</span>
-          <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_1s]">.</span>
-        </div>
-
-        <!-- Дополнительный текст -->
-        <p class="mt-2 text-sm text-base-content/50">Пожалуйста, подождите</p>
-      </div>
-
-      <!-- Ошибка -->
-      <div v-else-if="scheduleStore.error" class="alert alert-error">
-        <i class="fa-solid fa-circle-exclamation"></i>
-        <span>{{ scheduleStore.error }}</span>
-      </div>
-
-      <!-- Список графиков -->
-      <div v-else class="mt-6 sm:mt-8 space-y-6 sm:space-y-8">
-        <!-- Календарь -->
-        <div class="card bg-base-100 shadow-lg">
-          <div class="card-body p-2 sm:p-6">
-            <!-- Навигация по месяцам -->
-            <div class="flex items-center justify-between mb-3 sm:mb-4">
-              <button class="btn btn-ghost btn-xs sm:btn-sm" @click="changeMonth(-1)">
-                <i class="fa-solid fa-chevron-left"></i>
-              </button>
-              <h2 class="text-base sm:text-lg font-semibold">{{ getMonthName(currentDate) }}</h2>
-              <button class="btn btn-ghost btn-xs sm:btn-sm" @click="changeMonth(1)">
-                <i class="fa-solid fa-chevron-right"></i>
-              </button>
+        <!-- Загрузка -->
+        <div
+          v-if="scheduleStore.loading"
+          class="min-h-[60vh] flex flex-col items-center justify-center"
+        >
+          <div class="relative">
+            <!-- Основной спиннер -->
+            <div
+              class="w-16 h-16 rounded-full border-4 border-primary/20 animate-[spin_3s_linear_infinite]"
+            >
+              <div
+                class="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-[spin_1.5s_ease-in-out_infinite]"
+              ></div>
             </div>
 
-            <!-- Дни недели -->
-            <div class="grid grid-cols-7 gap-0.5 sm:gap-1 mb-1 sm:mb-2">
-              <div
-                v-for="day in ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']"
-                :key="day"
-                class="text-center text-xs sm:text-sm font-medium text-base-content/70"
-              >
-                {{ day }}
+            <!-- Пульсирующие круги -->
+            <div class="absolute inset-0 animate-[pulse_2s_ease-in-out_infinite]">
+              <div class="w-16 h-16 rounded-full bg-primary/10"></div>
+            </div>
+            <div class="absolute inset-0 animate-[pulse_2s_ease-in-out_infinite_0.5s]">
+              <div class="w-16 h-16 rounded-full bg-primary/5"></div>
+            </div>
+          </div>
+
+          <!-- Текст загрузки с анимацией -->
+          <div class="mt-8 text-lg font-medium text-base-content/70">
+            <span class="inline-block animate-[bounce_1s_ease-in-out_infinite]">З</span>
+            <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.1s]">а</span>
+            <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.2s]">г</span>
+            <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.3s]">р</span>
+            <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.4s]">у</span>
+            <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.5s]">з</span>
+            <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.6s]">к</span>
+            <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.7s]">а</span>
+            <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.8s]">.</span>
+            <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_0.9s]">.</span>
+            <span class="inline-block animate-[bounce_1s_ease-in-out_infinite_1s]">.</span>
+          </div>
+
+          <!-- Дополнительный текст -->
+          <p class="mt-2 text-sm text-base-content/50">Пожалуйста, подождите</p>
+        </div>
+
+        <!-- Ошибка -->
+        <div v-else-if="scheduleStore.error" class="alert alert-error">
+          <i class="fa-solid fa-circle-exclamation"></i>
+          <span>{{ scheduleStore.error }}</span>
+        </div>
+
+        <!-- Список графиков -->
+        <div v-else class="mt-6 sm:mt-8 space-y-6 sm:space-y-8">
+          <!-- Календарь -->
+          <div class="card bg-base-100 shadow-lg">
+            <div class="card-body p-2 sm:p-6">
+              <!-- Навигация по месяцам -->
+              <div class="flex items-center justify-between mb-3 sm:mb-4">
+                <button class="btn btn-ghost btn-xs sm:btn-sm" @click="changeMonth(-1)">
+                  <i class="fa-solid fa-chevron-left"></i>
+                </button>
+                <h2 class="text-base sm:text-lg font-semibold">{{ getMonthName(currentDate) }}</h2>
+                <button class="btn btn-ghost btn-xs sm:btn-sm" @click="changeMonth(1)">
+                  <i class="fa-solid fa-chevron-right"></i>
+                </button>
+              </div>
+
+              <!-- Дни недели -->
+              <div class="grid grid-cols-7 gap-0.5 sm:gap-1 mb-1 sm:mb-2">
+                <div
+                  v-for="day in ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']"
+                  :key="day"
+                  class="text-center text-xs sm:text-sm font-medium text-base-content/70"
+                >
+                  {{ day }}
+                </div>
+              </div>
+
+              <!-- Календарная сетка -->
+              <div class="grid grid-cols-7 gap-0.5 sm:gap-1">
+                <div
+                  v-for="(day, index) in getDaysInMonth(currentDate)"
+                  :key="index"
+                  class="aspect-square p-0.5 sm:p-1 border rounded-lg text-[10px] sm:text-xs"
+                  :class="{
+                    'bg-base-200': !day,
+                    'hover:bg-base-200': day,
+                  }"
+                >
+                  <template v-if="day">
+                    <div class="font-medium mb-0.5">{{ day.getDate() }}</div>
+                    <div class="space-y-0.5">
+                      <div
+                        v-for="schedule in getScheduleForDate(day)"
+                        :key="schedule.id"
+                        class="p-0.5 rounded cursor-pointer transition-colors"
+                        :class="{
+                          'bg-primary/10 text-primary hover:bg-primary/20':
+                            !isScheduleCompleted(schedule),
+                          'bg-base-200 text-base-content/50 hover:bg-base-300':
+                            isScheduleCompleted(schedule),
+                        }"
+                        :title="`${schedule.practice}\nГруппа: ${schedule.group}\nПреподаватель: ${schedule.teacher}`"
+                      >
+                        <div class="font-medium">{{ schedule.practice }}</div>
+                        <div class="text-[8px] sm:text-[10px] opacity-80">{{ schedule.group }}</div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
               </div>
             </div>
-
-            <!-- Календарная сетка -->
-            <div class="grid grid-cols-7 gap-0.5 sm:gap-1">
-              <div
-                v-for="(day, index) in getDaysInMonth(currentDate)"
-                :key="index"
-                class="aspect-square p-0.5 sm:p-1 border rounded-lg text-[10px] sm:text-xs"
-                :class="{
-                  'bg-base-200': !day,
-                  'hover:bg-base-200': day,
-                }"
-              >
-                <template v-if="day">
-                  <div class="font-medium mb-0.5">{{ day.getDate() }}</div>
-                  <div class="space-y-0.5">
-                    <div
-                      v-for="schedule in getScheduleForDate(day)"
-                      :key="schedule.id"
-                      class="p-0.5 rounded cursor-pointer transition-colors"
-                      :class="{
-                        'bg-primary/10 text-primary hover:bg-primary/20':
-                          !isScheduleCompleted(schedule),
-                        'bg-base-200 text-base-content/50 hover:bg-base-300':
-                          isScheduleCompleted(schedule),
-                      }"
-                      :title="`${schedule.practice}\nГруппа: ${schedule.group}\nПреподаватель: ${schedule.teacher}`"
-                    >
-                      <div class="font-medium">{{ schedule.practice }}</div>
-                      <div class="text-[8px] sm:text-[10px] opacity-80">{{ schedule.group }}</div>
-                    </div>
-                  </div>
-                </template>
-              </div>
-            </div>
           </div>
-        </div>
 
-        <!-- Активные графики -->
-        <div>
-          <h3 class="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Активные графики</h3>
-          <div class="space-y-3 sm:space-y-4">
-            <div
-              v-if="activeSchedules.length === 0"
-              class="text-center py-6 sm:py-8 text-base-content/50"
-            >
-              <i class="fa-solid fa-calendar-check text-xl sm:text-2xl mb-2"></i>
-              <p class="text-sm sm:text-base">Нет активных графиков</p>
-            </div>
-            <div
-              v-else
-              v-for="schedule in activeSchedules"
-              :key="schedule.id"
-              class="card bg-base-100 shadow hover:shadow-md transition-shadow"
-            >
-              <div class="card-body p-3 sm:p-6">
-                <div class="flex flex-col gap-2">
-                  <div>
-                    <h4 class="text-base sm:text-lg font-medium">{{ schedule.practice }}</h4>
-                    <p class="text-sm sm:text-base text-base-content/70">{{ schedule.group }}</p>
-                    <p class="text-xs sm:text-sm text-base-content/50">{{ schedule.teacher }}</p>
-                  </div>
-                  <div class="flex flex-wrap gap-2">
-                    <div class="badge badge-primary text-xs sm:text-sm w-fit">
-                      {{ formatDate(schedule.startDate) }} - {{ formatDate(schedule.endDate) }}
+          <!-- Активные графики -->
+          <div>
+            <h3 class="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Активные графики</h3>
+            <div class="space-y-3 sm:space-y-4">
+              <div
+                v-if="activeSchedules.length === 0"
+                class="text-center py-6 sm:py-8 text-base-content/50"
+              >
+                <i class="fa-solid fa-calendar-check text-xl sm:text-2xl mb-2"></i>
+                <p class="text-sm sm:text-base">Нет активных графиков</p>
+              </div>
+              <div
+                v-else
+                v-for="schedule in activeSchedules"
+                :key="schedule.id"
+                class="card bg-base-100 shadow hover:shadow-md transition-shadow"
+              >
+                <div class="card-body p-3 sm:p-6">
+                  <div class="flex flex-col gap-2">
+                    <div>
+                      <h4 class="text-base sm:text-lg font-medium">{{ schedule.practice }}</h4>
+                      <p class="text-sm sm:text-base text-base-content/70">{{ schedule.group }}</p>
+                      <p class="text-xs sm:text-sm text-base-content/50">{{ schedule.teacher }}</p>
                     </div>
-                    <div class="flex gap-2 ml-auto">
-                      <RouterLink
-                        :to="{ name: 'schedule-edit', query: { id: schedule.id } }"
-                        class="btn btn-ghost btn-xs sm:btn-sm"
-                      >
-                        <i class="fa-solid fa-pen-to-square"></i>
-                      </RouterLink>
-                      <button
-                        class="btn btn-ghost btn-xs sm:btn-sm text-error"
-                        @click="openDeleteModal(schedule)"
-                      >
-                        <i class="fa-solid fa-trash"></i>
-                      </button>
+                    <div class="flex flex-wrap gap-2">
+                      <div class="badge badge-primary text-xs sm:text-sm w-fit">
+                        {{ formatDate(schedule.startDate) }} - {{ formatDate(schedule.endDate) }}
+                      </div>
+                      <div class="flex gap-2 ml-auto">
+                        <RouterLink
+                          :to="{ name: 'schedule-edit', query: { id: schedule.id } }"
+                          class="btn btn-ghost btn-xs sm:btn-sm"
+                        >
+                          <i class="fa-solid fa-pen-to-square"></i>
+                        </RouterLink>
+                        <button
+                          class="btn btn-ghost btn-xs sm:btn-sm text-error"
+                          @click="openDeleteModal(schedule)"
+                        >
+                          <i class="fa-solid fa-trash"></i>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- Завершенные графики -->
-        <div>
-          <h3 class="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Завершенные графики</h3>
-          <div class="space-y-3 sm:space-y-4">
-            <div
-              v-if="completedSchedules.length === 0"
-              class="text-center py-6 sm:py-8 text-base-content/50"
-            >
-              <i class="fa-solid fa-calendar-xmark text-xl sm:text-2xl mb-2"></i>
-              <p class="text-sm sm:text-base">Нет завершенных графиков</p>
-            </div>
-            <div
-              v-else
-              v-for="schedule in completedSchedules"
-              :key="schedule.id"
-              class="card bg-base-100 shadow hover:shadow-md transition-shadow opacity-75"
-            >
-              <div class="card-body p-3 sm:p-6">
-                <div class="flex flex-col gap-2">
-                  <div>
-                    <h4 class="text-base sm:text-lg font-medium">{{ schedule.practice }}</h4>
-                    <p class="text-sm sm:text-base text-base-content/70">{{ schedule.group }}</p>
-                    <p class="text-xs sm:text-sm text-base-content/50">{{ schedule.teacher }}</p>
-                  </div>
-                  <div class="flex flex-wrap gap-2">
-                    <div class="badge badge-ghost text-xs sm:text-sm w-fit">
-                      {{ formatDate(schedule.startDate) }} - {{ formatDate(schedule.endDate) }}
+          <!-- Завершенные графики -->
+          <div>
+            <h3 class="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Завершенные графики</h3>
+            <div class="space-y-3 sm:space-y-4">
+              <div
+                v-if="completedSchedules.length === 0"
+                class="text-center py-6 sm:py-8 text-base-content/50"
+              >
+                <i class="fa-solid fa-calendar-xmark text-xl sm:text-2xl mb-2"></i>
+                <p class="text-sm sm:text-base">Нет завершенных графиков</p>
+              </div>
+              <div
+                v-else
+                v-for="schedule in completedSchedules"
+                :key="schedule.id"
+                class="card bg-base-100 shadow hover:shadow-md transition-shadow opacity-75"
+              >
+                <div class="card-body p-3 sm:p-6">
+                  <div class="flex flex-col gap-2">
+                    <div>
+                      <h4 class="text-base sm:text-lg font-medium">{{ schedule.practice }}</h4>
+                      <p class="text-sm sm:text-base text-base-content/70">{{ schedule.group }}</p>
+                      <p class="text-xs sm:text-sm text-base-content/50">{{ schedule.teacher }}</p>
                     </div>
-                    <div class="flex gap-2 ml-auto">
-                      <RouterLink
-                        :to="{ name: 'schedule-edit', query: { id: schedule.id } }"
-                        class="btn btn-ghost btn-xs sm:btn-sm"
-                      >
-                        <i class="fa-solid fa-pen-to-square"></i>
-                      </RouterLink>
-                      <button
-                        class="btn btn-ghost btn-xs sm:btn-sm text-error"
-                        @click="openDeleteModal(schedule)"
-                      >
-                        <i class="fa-solid fa-trash"></i>
-                      </button>
+                    <div class="flex flex-wrap gap-2">
+                      <div class="badge badge-ghost text-xs sm:text-sm w-fit">
+                        {{ formatDate(schedule.startDate) }} - {{ formatDate(schedule.endDate) }}
+                      </div>
+                      <div class="flex gap-2 ml-auto">
+                        <RouterLink
+                          :to="{ name: 'schedule-edit', query: { id: schedule.id } }"
+                          class="btn btn-ghost btn-xs sm:btn-sm"
+                        >
+                          <i class="fa-solid fa-pen-to-square"></i>
+                        </RouterLink>
+                        <button
+                          class="btn btn-ghost btn-xs sm:btn-sm text-error"
+                          @click="openDeleteModal(schedule)"
+                        >
+                          <i class="fa-solid fa-trash"></i>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -381,7 +402,7 @@ const deleteSchedule = async () => {
 
 <style scoped>
 .schedule-view {
-  min-height: calc(100vh - 64px - 88px);
+  min-height: calc(100vh - 64px - 101.53px);
 }
 
 @keyframes spin {

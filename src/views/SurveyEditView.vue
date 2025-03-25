@@ -33,8 +33,11 @@ const newBlock = ref({
 const editingBlock = ref(null)
 const blockToDeleteIndex = ref(null)
 
-// ID опроса из маршрута
-const surveyId = route.params.id
+// Public ID опроса из маршрута
+const surveyPublicId = route.params.public_id
+
+// Числовой ID опроса (будет установлен после загрузки данных)
+const surveyNumericId = ref(null)
 
 // Данные из сторов
 const schedules = computed(() => scheduleStore.schedules)
@@ -43,20 +46,22 @@ const schedulesError = computed(() => scheduleStore.error)
 
 // Загрузка данных при монтировании
 onMounted(async () => {
-  if (!surveyId) {
-    console.error('ID опроса отсутствует')
+  if (!surveyPublicId) {
+    console.error('Public ID опроса отсутствует')
     router.push('/surveys')
     return
   }
 
   try {
-    console.log(`Загрузка данных для опроса с ID: ${surveyId}`)
-    await Promise.all([surveyStore.fetchSurvey(surveyId), scheduleStore.fetchSchedules()])
+    console.log(`Загрузка данных для опроса с public_id: ${surveyPublicId}`)
+    await Promise.all([surveyStore.fetchSurvey(surveyPublicId), scheduleStore.fetchSchedules()])
 
     const surveyData = surveyStore.currentSurvey
     console.log('Полученные данные опроса:', surveyData)
 
     if (surveyData) {
+      // Устанавливаем числовой ID
+      surveyNumericId.value = surveyData.id
       surveyTitle.value = surveyData.title || ''
       surveyDescription.value = surveyData.description || ''
       responseLimit.value = surveyData.response_limit || null
@@ -156,7 +161,7 @@ async function saveSurvey() {
 
   try {
     console.log('Обновление опроса:', surveyData)
-    await surveyStore.updateSurvey(surveyId, surveyData)
+    await surveyStore.updateSurvey(surveyNumericId.value, surveyData)
 
     // Удаление вопросов, которые были удалены локально
     const deletedBlocks = originalBlocks.value.filter(
@@ -175,7 +180,7 @@ async function saveSurvey() {
       // Создание нового вопроса
       if (!block.id) {
         const questionData = {
-          survey_id: surveyId,
+          survey_id: surveyNumericId.value, // Используем числовой ID
           title: block.title,
           description: block.description,
           order: block.order,
@@ -213,7 +218,7 @@ async function saveSurvey() {
 
         if (questionChanged) {
           const updatedQuestionData = {
-            survey_id: surveyId,
+            survey_id: surveyNumericId.value, // Используем числовой ID
             title: block.title,
             description: block.description,
             order: block.order,
@@ -281,7 +286,7 @@ async function saveSurvey() {
 
     // Обновляем исходное состояние после успешного сохранения
     originalBlocks.value = JSON.parse(JSON.stringify(blocks.value))
-    router.push(`/survey/answer/${surveyId}`)
+    router.push(`/survey/answer/${surveyPublicId}`) // Перенаправляем по public_id
   } catch (error) {
     console.error('Ошибка при сохранении:', error)
     alert(`Ошибка при обновлении опроса: ${surveyStore.error || error.message}`)
@@ -296,7 +301,6 @@ function openDeleteConfirmationModal(index) {
 function confirmDeleteBlock() {
   if (blockToDeleteIndex.value !== null) {
     blocks.value.splice(blockToDeleteIndex.value, 1)
-    // Пересчитываем order для оставшихся вопросов
     blocks.value.forEach((block, index) => {
       block.order = index + 1
     })
@@ -391,7 +395,7 @@ function saveEditedBlock() {
         ? currentBlock.answer_options.map((opt, index) => ({
             id: opt.id,
             title: opt.title,
-            order: index + 1, // Пересчитываем order локально
+            order: index + 1,
           }))
         : currentBlock.answer_options || [],
   }
@@ -884,7 +888,7 @@ const isLoading = computed(() => surveyStore.loading || scheduleStore.loading)
 
 <style scoped>
 .survey-builder {
-  min-height: calc(100vh - 64px - 88px);
+  min-height: calc(100vh - 64px - 101.53px);
 }
 
 @keyframes spin {

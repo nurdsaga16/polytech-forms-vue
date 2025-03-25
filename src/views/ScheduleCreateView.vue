@@ -153,6 +153,6 @@ const createSchedule = async () => {
 
 <style scoped>
 .schedule-builder {
-  min-height: calc(100vh - 64px - 88px);
+  min-height: calc(100vh - 64px - 101.53px);
 }
 </style>

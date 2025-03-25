@@ -12,6 +12,8 @@ import SchedulesView from '@/views/SchedulesView.vue'
 import ScheduleEditView from '@/views/ScheduleEditView.vue'
 import NotFoundView from '@/views/404View.vue'
 import { useAuthStore } from '../stores/useAuthStore'
+import ForgotPasswordView from '@/views/ForgotPasswordView.vue'
+import ResetPasswordView from '@/views/ResetPasswordView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -25,6 +27,32 @@ const router = createRouter({
       path: '/login',
       name: 'login',
       component: LoginView,
+      beforeEnter: (to, from, next) => {
+        const authStore = useAuthStore()
+        if (authStore.authData) {
+          next('/')
+        } else {
+          next()
+        }
+      },
+    },
+    {
+      path: '/forgot-password',
+      name: 'forgot-password',
+      component: ForgotPasswordView,
+      beforeEnter: (to, from, next) => {
+        const authStore = useAuthStore()
+        if (authStore.authData) {
+          next('/')
+        } else {
+          next()
+        }
+      },
+    },
+    {
+      path: '/reset-password/:token',
+      name: 'reset-password',
+      component: ResetPasswordView,
       beforeEnter: (to, from, next) => {
         const authStore = useAuthStore()
         if (authStore.authData) {
@@ -50,25 +78,25 @@ const router = createRouter({
       path: '/survey/create',
       name: 'survey-create',
       component: SurveyCreateView,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresVerification: true },
     },
     {
-      path: '/survey/edit/:id',
+      path: '/survey/edit/:public_id',
       name: 'survey-edit',
       component: SurveyEditView,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresVerification: true },
     },
     {
-      path: '/survey/:id',
+      path: '/survey/:public_id',
       name: 'survey',
       component: SurveyLayout,
       meta: { requiresAuth: false },
     },
     {
-      path: '/survey/answer/:id',
+      path: '/survey/answer/:public_id',
       name: 'survey-answer',
       component: SurveyAnswerView,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresVerification: true },
     },
     {
       path: '/schedules',
@@ -80,13 +108,13 @@ const router = createRouter({
       path: '/schedule/create',
       name: 'schedule-create',
       component: ScheduleCreateView,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresVerification: true },
     },
     {
       path: '/schedule/edit',
       name: 'schedule-edit',
       component: ScheduleEditView,
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, requiresVerification: true },
     },
     {
       path: '/:pathMatch(.*)*',
@@ -96,21 +124,27 @@ const router = createRouter({
   ],
 })
 
-// Глобальный guard для проверки авторизации
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
 
-  // Если маршрут требует авторизации
+  if (authStore.authData && !authStore.emailVerified) {
+    await authStore.restoreAuth().catch(() => {
+      authStore.logout()
+    })
+  }
+
   if (to.meta.requiresAuth === true) {
-    // Проверяем только если явно true
-    // Если пользователь не авторизован, перенаправляем на страницу входа
     if (!authStore.authData) {
       next('/login')
+    } else if (to.meta.requiresVerification === true && !authStore.emailVerified) {
+      next({
+        path: '/profile',
+        query: { redirectReason: 'emailNotVerified' },
+      })
     } else {
       next()
     }
   } else {
-    // Для всех остальных маршрутов (включая /survey/:id) пропускаем без проверки
     next()
   }
 })

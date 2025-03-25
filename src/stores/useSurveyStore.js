@@ -39,11 +39,11 @@ export const useSurveyStore = defineStore('survey', () => {
   }
 
   // Получение конкретного опроса
-  async function fetchSurvey(id) {
+  async function fetchSurvey(identifier) {
     try {
       loading.value = true
       error.value = null
-      const response = await api.get(`/surveys/${id}`, getAuthHeaders())
+      const response = await api.get(`/surveys/${identifier}`, getAuthHeaders()) // Используем public_id или id
       currentSurvey.value = response.data.data
       return response.data.data
     } catch (err) {

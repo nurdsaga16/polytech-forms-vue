@@ -35,13 +35,13 @@ export const useProfileStore = defineStore('profile', () => {
     loading.value = false // Сбрасываем loading при очистке данных
   }
 
-  async function updateProfile(full_name, email, password, avatar) {
+  async function updateProfile(full_name, email, password, avatar, emailChanged = false) {
     loading.value = true // Устанавливаем loading перед запросом
     error.value = null // Сбрасываем ошибку перед новым запросом
     try {
       await api.put(
         '/users',
-        { full_name, email, password, avatar },
+        { full_name, email, password, avatar, reset_verification: emailChanged },
         {
           headers: {
             Authorization: `Bearer ${token.value}`,

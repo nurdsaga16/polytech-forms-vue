@@ -1,10 +1,12 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useProfileStore } from '../stores/useProfileStore'
 import { useAuthStore } from '../stores/useAuthStore'
+import { useRouter } from 'vue-router'
 
 const profileStore = useProfileStore()
 const authStore = useAuthStore()
+const router = useRouter()
 
 const showModal = ref(false)
 const editedUser = ref({
@@ -15,10 +17,27 @@ const editedUser = ref({
 })
 const confirmPassword = ref('')
 const passwordError = ref('')
+const verificationMessage = ref('') // Сообщение будет браться из response
+const isVerifying = ref(false)
+const showVerifyButton = ref(true)
+let verificationInterval = null
 
 onMounted(async () => {
   if (authStore.authData?.userId) {
     await profileStore.fetchUserData(authStore.authData.userId)
+    console.log('Email verified:', authStore.emailVerified)
+    if (!authStore.emailVerified) {
+      // Устанавливаем сообщение из authData.message, если оно есть
+      verificationMessage.value =
+        authStore.authData?.message || 'Пожалуйста, подтвердите вашу электронную почту.'
+      isVerifying.value = true
+    }
+  }
+})
+
+onUnmounted(() => {
+  if (verificationInterval) {
+    clearInterval(verificationInterval)
   }
 })
 
@@ -43,16 +62,64 @@ const saveChanges = async () => {
   }
 
   try {
+    const emailChanged = editedUser.value.email !== profileStore.userData?.email
     await profileStore.updateProfile(
       editedUser.value.full_name,
       editedUser.value.email,
       editedUser.value.password || undefined,
       editedUser.value.avatar || undefined,
+      emailChanged,
     )
     showModal.value = false
+    if (emailChanged) {
+      authStore.emailVerified = false
+      verificationMessage.value = 'Пожалуйста, подтвердите вашу новую электронную почту.' // Начальное сообщение
+      isVerifying.value = true
+      showVerifyButton.value = true
+    }
   } catch (error) {
     console.error('Ошибка при обновлении профиля:', error)
   }
+}
+
+const sendVerification = async () => {
+  try {
+    const response = await authStore.sendVerificationEmail()
+    // Устанавливаем сообщение из ответа сервера
+    verificationMessage.value = response.message
+    showVerifyButton.value = false
+    console.log('Verification sent:', response)
+    startVerificationCheck()
+  } catch (err) {
+    // Устанавливаем сообщение об ошибке из ответа сервера, если оно есть
+    verificationMessage.value = err.message || 'Ошибка при отправке письма верификации'
+    console.error('Ошибка при отправке письма верификации:', err)
+    showVerifyButton.value = true
+  }
+}
+
+const startVerificationCheck = () => {
+  if (verificationInterval) {
+    clearInterval(verificationInterval)
+  }
+  verificationInterval = setInterval(async () => {
+    try {
+      const response = await authStore.checkVerificationStatus()
+      console.log('Verification status checked:', authStore.emailVerified)
+      if (authStore.emailVerified) {
+        // Предполагаем, что сервер вернет сообщение об успехе в будущем
+        verificationMessage.value = response?.message || 'Электронная почта успешно подтверждена'
+        isVerifying.value = false
+        clearInterval(verificationInterval)
+        setTimeout(() => {
+          verificationMessage.value = ''
+          router.push('/profile')
+        }, 2000)
+      }
+    } catch (err) {
+      console.error('Ошибка проверки верификации:', err)
+    }
+  }, 5000)
 }
 </script>
 
@@ -63,7 +130,7 @@ const saveChanges = async () => {
       <div class="avatar">
         <div class="w-24 sm:w-32 rounded-full ring ring-primary ring-offset-base-100 ring-offset-2">
           <div
-            v-if="profileStore.loading"
+            v-if="profileStore.loading || !profileStore.userData"
             class="w-full h-full rounded-full bg-base-300 animate-pulse"
           ></div>
           <img
@@ -80,24 +147,49 @@ const saveChanges = async () => {
 
       <!-- Информация о пользователе -->
       <div class="text-center space-y-1 sm:space-y-2">
-        <h2
-          v-if="profileStore.loading"
+        <div
+          v-if="profileStore.loading || !profileStore.userData"
           class="w-40 h-6 sm:h-8 bg-base-300 rounded animate-pulse mx-auto"
-        ></h2>
+        ></div>
         <h2 v-else class="text-xl sm:text-2xl font-bold">{{ profileStore.userData?.full_name }}</h2>
 
-        <p
-          v-if="profileStore.loading"
+        <div
+          v-if="profileStore.loading || !profileStore.userData"
           class="w-32 h-4 sm:h-5 bg-base-300 rounded animate-pulse mx-auto"
-        ></p>
+        ></div>
         <p v-else class="text-sm sm:text-base text-base-content/70">
           {{ profileStore.userData?.email }}
         </p>
 
-        <p
-          v-if="profileStore.loading"
+        <!-- Сообщение о верификации -->
+        <div
+          v-if="isVerifying || verificationMessage"
+          :class="[
+            'alert mt-4 p-4 rounded-2xl shadow-md transition-all duration-300 bg-base-100',
+            verificationMessage === 'Электронная почта успешно подтверждена'
+              ? 'border-2 border-success bg-success/30 text-success-dark'
+              : 'border-2 border-warning bg-warning/40 text-warning-dark',
+          ]"
+        >
+          <div class="flex items-center gap-3">
+            <i class="fa-solid fa-envelope text-lg sm:text-xl animate-pulse"></i>
+            <span class="font-medium text-sm sm:text-base">
+              {{ verificationMessage }}
+            </span>
+            <a
+              v-if="showVerifyButton && !authStore.emailVerified"
+              @click.prevent="sendVerification"
+              class="ml-auto underline cursor-pointer text-sm sm:text-base transition-colors duration-200"
+            >
+              Подтвердить
+            </a>
+          </div>
+        </div>
+
+        <div
+          v-if="profileStore.loading || !profileStore.userData"
           class="w-24 h-4 sm:h-5 bg-base-300 rounded animate-pulse mx-auto"
-        ></p>
+        ></div>
         <p v-else class="text-primary font-medium text-sm sm:text-base">Преподаватель</p>
       </div>
 
@@ -109,14 +201,14 @@ const saveChanges = async () => {
         >
           <div class="flex flex-col">
             <div
-              v-if="profileStore.loading"
+              v-if="profileStore.loading || !profileStore.userData"
               class="w-12 h-10 bg-base-300 rounded animate-pulse"
             ></div>
             <div v-else class="text-4xl font-bold text-primary mb-2">
               {{ profileStore.userData?.schedules_created || 0 }}
             </div>
             <div
-              v-if="profileStore.loading"
+              v-if="profileStore.loading || !profileStore.userData"
               class="w-24 h-4 bg-base-300 rounded animate-pulse mt-2"
             ></div>
             <div v-else class="text-sm text-base-content/70">Создано графиков</div>
@@ -129,14 +221,14 @@ const saveChanges = async () => {
         >
           <div class="flex flex-col">
             <div
-              v-if="profileStore.loading"
+              v-if="profileStore.loading || !profileStore.userData"
               class="w-12 h-10 bg-base-300 rounded animate-pulse"
             ></div>
             <div v-else class="text-4xl font-bold text-primary mb-2">
               {{ profileStore.userData?.active_schedules || 0 }}
             </div>
             <div
-              v-if="profileStore.loading"
+              v-if="profileStore.loading || !profileStore.userData"
               class="w-24 h-4 bg-base-300 rounded animate-pulse mt-2"
             ></div>
             <div v-else class="text-sm text-base-content/70">Активных графиков</div>
@@ -149,14 +241,14 @@ const saveChanges = async () => {
         >
           <div class="flex flex-col">
             <div
-              v-if="profileStore.loading"
+              v-if="profileStore.loading || !profileStore.userData"
               class="w-12 h-10 bg-base-300 rounded animate-pulse"
             ></div>
             <div v-else class="text-4xl font-bold text-secondary mb-2">
               {{ profileStore.userData?.surveys_created || 0 }}
             </div>
             <div
-              v-if="profileStore.loading"
+              v-if="profileStore.loading || !profileStore.userData"
               class="w-24 h-4 bg-base-300 rounded animate-pulse mt-2"
             ></div>
             <div v-else class="text-sm text-base-content/70">Создано опросов</div>
@@ -169,14 +261,14 @@ const saveChanges = async () => {
         >
           <div class="flex flex-col">
             <div
-              v-if="profileStore.loading"
+              v-if="profileStore.loading || !profileStore.userData"
               class="w-12 h-10 bg-base-300 rounded animate-pulse"
             ></div>
             <div v-else class="text-4xl font-bold text-secondary mb-2">
               {{ profileStore.userData?.active_surveys || 0 }}
             </div>
             <div
-              v-if="profileStore.loading"
+              v-if="profileStore.loading || !profileStore.userData"
               class="w-24 h-4 bg-base-300 rounded animate-pulse mt-2"
             ></div>
             <div v-else class="text-sm text-base-content/70">Активных опросов</div>
@@ -185,7 +277,10 @@ const saveChanges = async () => {
       </div>
 
       <!-- Кнопка -->
-      <div v-if="profileStore.loading" class="w-40 h-10 bg-base-300 rounded animate-pulse"></div>
+      <div
+        v-if="profileStore.loading || !profileStore.userData"
+        class="w-40 h-10 bg-base-300 rounded animate-pulse"
+      ></div>
       <button v-else class="btn btn-primary btn-sm sm:btn-md" @click="openModal">
         Редактировать профиль
       </button>

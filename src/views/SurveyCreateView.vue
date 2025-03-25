@@ -68,7 +68,23 @@ function closeQuestionModal() {
   resetNewBlock()
 }
 
+// Новая вычисляемая переменная для проверки валидности нового блока
+const isNewBlockValid = computed(() => {
+  if (!newBlock.value.question.trim()) return false
+
+  if (selectedBlockType.value === 'Множественный выбор') {
+    return (
+      newBlock.value.options.length >= 2 &&
+      newBlock.value.options.every((option) => option.trim() !== '')
+    )
+  }
+
+  return true
+})
+
 async function addBlock() {
+  if (!isNewBlockValid.value) return // Предотвращаем добавление невалидного блока
+
   const question = {
     title: newBlock.value.question,
     description: newBlock.value.description,
@@ -224,7 +240,23 @@ function mapQuestionTypeToDisplay(type) {
   }
 }
 
+// Новая вычисляемая переменная для проверки валидности редактируемого блока
+const isEditingBlockValid = computed(() => {
+  if (!editingBlock.value?.title.trim()) return false
+
+  if (editingBlock.value?.type === 'Множественный выбор') {
+    return (
+      editingBlock.value.answer_options.length >= 2 &&
+      editingBlock.value.answer_options.every((option) => option.title.trim() !== '')
+    )
+  }
+
+  return true
+})
+
 async function saveEditedBlock() {
+  if (!isEditingBlockValid.value) return // Предотвращаем сохранение невалидного блока
+
   if (editingBlock.value !== null) {
     const updatedBlock = {
       title: editingBlock.value.title,
@@ -284,7 +316,7 @@ const isLoading = computed(() => surveyStore.loading)
     <div
       v-if="!isTemplateSelected"
       class="flex flex-col items-center justify-center py-8 transition-all duration-500 ease-in-out"
-      style="height: calc(100vh - 64px - 88px)"
+      style="height: calc(100vh - 64px - 101.53px)"
     >
       <div class="mx-auto max-w-[58rem] px-4 xl:px-10">
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -508,12 +540,13 @@ const isLoading = computed(() => surveyStore.loading)
         <div class="space-y-6">
           <div class="form-control">
             <label class="label">
-              <span class="label-text text-lg font-medium">Вопрос</span>
+              <span class="label-text text-lg font-medium">Вопрос *</span>
             </label>
             <input
               v-model="editingBlock.title"
               placeholder="Введите текст вопроса..."
               class="input input-bordered w-full h-12 text-lg"
+              required
             />
           </div>
 
@@ -530,7 +563,7 @@ const isLoading = computed(() => surveyStore.loading)
 
           <div v-if="editingBlock.type === 'Множественный выбор'" class="space-y-4">
             <div class="flex items-center justify-between">
-              <h4 class="text-lg font-semibold">Варианты ответов</h4>
+              <h4 class="text-lg font-semibold">Варианты ответов *</h4>
               <button
                 @click="
                   editingBlock.answer_options.push({
@@ -560,6 +593,7 @@ const isLoading = computed(() => surveyStore.loading)
                   v-model="editingBlock.answer_options[optionIndex].title"
                   placeholder="Введите вариант ответа..."
                   class="input input-bordered flex-1 h-10"
+                  required
                 />
                 <button
                   v-if="editingBlock.answer_options.length > 2"
@@ -578,7 +612,11 @@ const isLoading = computed(() => surveyStore.loading)
             <i class="fa-solid fa-times"></i>
             Отмена
           </button>
-          <button class="btn btn-primary gap-2" @click="saveEditedBlock">
+          <button
+            class="btn btn-primary gap-2"
+            @click="saveEditedBlock"
+            :disabled="!isEditingBlockValid"
+          >
             <i class="fa-solid fa-check"></i>
             Сохранить
           </button>
@@ -665,12 +703,13 @@ const isLoading = computed(() => surveyStore.loading)
         <div class="space-y-6">
           <div class="form-control">
             <label class="label">
-              <span class="label-text text-lg font-medium">Вопрос</span>
+              <span class="label-text text-lg font-medium">Вопрос *</span>
             </label>
             <input
               v-model="newBlock.question"
               placeholder="Введите текст вопроса..."
               class="input input-bordered w-full h-12 text-lg"
+              required
             />
           </div>
 
@@ -692,7 +731,7 @@ const isLoading = computed(() => surveyStore.loading)
 
           <div v-if="selectedBlockType === 'Множественный выбор'" class="space-y-4">
             <div class="flex items-center justify-between">
-              <h4 class="text-lg font-semibold">Варианты ответов</h4>
+              <h4 class="text-lg font-semibold">Варианты ответов *</h4>
               <button @click="addOption" class="btn btn-primary btn-sm gap-2">
                 <i class="fa-solid fa-plus"></i>
                 Добавить вариант
@@ -714,6 +753,7 @@ const isLoading = computed(() => surveyStore.loading)
                   v-model="newBlock.options[index]"
                   placeholder="Введите вариант ответа..."
                   class="input input-bordered flex-1 h-10"
+                  required
                 />
                 <button
                   v-if="newBlock.options.length > 2"
@@ -732,7 +772,7 @@ const isLoading = computed(() => surveyStore.loading)
             <i class="fa-solid fa-times"></i>
             Отмена
           </button>
-          <button class="btn btn-primary gap-2" @click="addBlock">
+          <button class="btn btn-primary gap-2" @click="addBlock" :disabled="!isNewBlockValid">
             <i class="fa-solid fa-check"></i>
             Сохранить
           </button>

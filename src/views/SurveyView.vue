@@ -9,41 +9,51 @@ const route = useRoute()
 const surveyStore = useSurveyStore()
 const responseStore = useResponseStore()
 
-// ID опроса из маршрута
-const surveyId = route.params.id
+const surveyPublicId = route.params.public_id
 
-// Состояние опроса и ответов
 const survey = ref(null)
 const answers = ref([])
 const currentBlock = ref(0)
 const isCompleted = ref(false)
-const errorMessage = ref('') // Для отображения ошибок пользователю
+const errorMessage = ref('')
 
-// Состояние темы
 const theme = ref(localStorage.getItem('theme') || 'night')
 
-// Функция для переключения темы
 const toggleTheme = () => {
   theme.value = theme.value === 'night' ? 'winter' : 'night'
   localStorage.setItem('theme', theme.value)
   document.documentElement.setAttribute('data-theme', theme.value)
 }
 
-// Проверка авторизации и загрузка данных
 onMounted(async () => {
+  // Проверяем, что public_id не является числом
+  if (!isNaN(Number(surveyPublicId))) {
+    router.push('/404') // Если передан числовой id, перенаправляем на 404
+    return
+  }
+
   try {
-    console.log(`Загрузка опроса с ID: ${surveyId}`)
-    await surveyStore.fetchSurvey(surveyId)
+    console.log(`Загрузка опроса с public_id: ${surveyPublicId}`)
+    await surveyStore.fetchSurvey(surveyPublicId)
     survey.value = surveyStore.currentSurvey
     console.log('Полученный опрос:', survey.value)
 
-    // Проверяем существование опроса
     if (!survey.value || !survey.value.questions || survey.value.questions.length === 0) {
       throw new Error('Опрос не найден или не содержит вопросов')
     }
 
-    // Проверяем, активен ли опрос
     if (survey.value.active === 0) {
+      router.push('/404')
+      return
+    }
+
+    await responseStore.fetchResponses(survey.value.id)
+    const responseCount = responseStore.responses.filter(
+      (resp) => resp.survey_id === survey.value.id,
+    ).length
+    console.log('Количество ответов:', responseCount)
+
+    if (survey.value.response_limit && responseCount >= survey.value.response_limit) {
       router.push('/404')
       return
     }
@@ -76,7 +86,7 @@ const initializeAnswers = () => {
 const nextBlock = () => {
   if (currentBlock.value < survey.value.questions.length - 1) {
     currentBlock.value++
-    errorMessage.value = '' // Сбрасываем ошибку при переходе
+    errorMessage.value = ''
   } else {
     submitSurvey()
   }
@@ -93,7 +103,7 @@ const prevBlock = () => {
 // Отправка ответов
 const submitSurvey = async () => {
   const responseData = {
-    survey_id: Number(surveyId),
+    survey_id: survey.value.id, // Используем числовой id из данных опроса
     text_answers: [],
     choice_answers: [],
     scale_answers: [],
@@ -155,7 +165,9 @@ const isLoading = computed(() => surveyStore.loading || responseStore.loading)
 <template>
   <div class="min-h-screen bg-base-200 relative flex items-center justify-center">
     <!-- Верхняя панель с логотипом и переключателем тем -->
-    <div class="absolute top-0 left-0 right-0 flex justify-between items-center px-4 py-4 z-10">
+    <div
+      class="absolute top-0 left-0 right-0 flex justify-between items-center px-4 py-4 z-10 mt-2"
+    >
       <!-- Пустое место слева для симметрии -->
       <div class="w-20"></div>
 
@@ -164,7 +176,14 @@ const isLoading = computed(() => surveyStore.loading || responseStore.loading)
         to="/"
         class="flex items-center gap-2 absolute left-1/2 transform -translate-x-1/2"
       >
-        <span class="text-xl font-bold">Polytech Forms</span>
+        <img
+          src="../assets/img/logo-polytech.svg"
+          alt="Polytech Forms"
+          class="w-8 inline-block align-middle logo"
+        />
+        <span class="text-2xl font-bold text-white hidden sm:inline-block align-middle logo"
+          >Forms</span
+        >
       </RouterLink>
 
       <!-- Переключатель темы справа -->

@@ -11,8 +11,11 @@ const surveyStore = useSurveyStore()
 const responseStore = useResponseStore()
 const authStore = useAuthStore()
 
-// ID опроса из маршрута
-const surveyId = route.params.id
+// Public ID опроса из маршрута
+const surveyPublicId = route.params.public_id
+
+// Числовой ID опроса (будет установлен после загрузки данных)
+const surveyNumericId = ref(null)
 
 // Состояние опроса
 const survey = ref(null)
@@ -22,7 +25,7 @@ const showDeleteModal = ref(false)
 const showStatusModal = ref(false)
 const isLoading = ref(false)
 const currentPage = ref(1)
-const itemsPerPage = 1 // Увеличим до 10 для удобства
+const itemsPerPage = 1
 
 // Загрузка данных
 onMounted(async () => {
@@ -31,7 +34,7 @@ onMounted(async () => {
     return
   }
 
-  if (!surveyId) {
+  if (!surveyPublicId) {
     router.push('/surveys')
     return
   }
@@ -42,7 +45,7 @@ onMounted(async () => {
 const fetchSurveyData = async () => {
   try {
     isLoading.value = true
-    await surveyStore.fetchSurvey(surveyId)
+    await surveyStore.fetchSurvey(surveyPublicId) // Загружаем по public_id
     await responseStore.fetchResponses()
     survey.value = surveyStore.currentSurvey
 
@@ -50,12 +53,15 @@ const fetchSurveyData = async () => {
       throw new Error('Опрос не найден')
     }
 
+    // Устанавливаем числовой ID из загруженных данных
+    surveyNumericId.value = survey.value.id
+
     // Дополняем данные статистикой ответов
     survey.value.responses = responseStore.responses.filter(
-      (r) => r.survey_id === Number(surveyId),
+      (r) => r.survey_id === surveyNumericId.value,
     ).length
     survey.value.individualResponses = responseStore.responses
-      .filter((r) => r.survey_id === Number(surveyId))
+      .filter((r) => r.survey_id === surveyNumericId.value)
       .map((response) => ({
         id: response.id,
         date: response.created_at,
@@ -79,14 +85,14 @@ const fetchSurveyData = async () => {
       if (question.question_type === 'multiple_choice') {
         question.answers = question.answer_options.reduce((acc, option) => {
           acc[option.title] = responseStore.responses
-            .filter((r) => r.survey_id === Number(surveyId))
+            .filter((r) => r.survey_id === surveyNumericId.value)
             .flatMap((r) => r.choice_answers)
             .filter((a) => a.question_id === question.id && a.answer_option_id === option.id).length
           return acc
         }, {})
       } else if (question.question_type === 'scale') {
         const scaleAnswers = responseStore.responses
-          .filter((r) => r.survey_id === Number(surveyId))
+          .filter((r) => r.survey_id === surveyNumericId.value)
           .flatMap((r) => r.scale_answers)
           .filter((a) => a.question_id === question.id)
         question.answers = {
@@ -100,7 +106,7 @@ const fetchSurveyData = async () => {
         }
       } else if (question.question_type === 'text') {
         question.answers = responseStore.responses
-          .filter((r) => r.survey_id === Number(surveyId))
+          .filter((r) => r.survey_id === surveyNumericId.value)
           .flatMap((r) => r.text_answers)
           .filter((a) => a.question_id === question.id)
           .map((a) => a.answer)
@@ -124,9 +130,9 @@ const paginatedResponses = computed(() => {
   return survey.value?.individualResponses.slice(start, end) || []
 })
 
-// URL опроса
+// URL опроса с использованием public_id
 const surveyUrl = computed(() => {
-  return `${window.location.origin}/survey/${survey.value?.id}`
+  return `${window.location.origin}/survey/${survey.value?.public_id}`
 })
 
 // Функции
@@ -137,19 +143,9 @@ const toggleStatus = () => {
 const confirmStatusChange = async () => {
   try {
     const newActive = survey.value.active === 1 ? 0 : 1
-
-    // Формируем данные только с active
-    const surveyData = {
-      active: newActive,
-    }
-
-    console.log(
-      'Данные, которые будут отправлены в updateSurvey:',
-      JSON.stringify(surveyData, null, 2),
-    )
-
-    await surveyStore.updateSurvey(surveyId, surveyData)
-
+    const surveyData = { active: newActive }
+    console.log('Данные для updateSurvey:', JSON.stringify(surveyData, null, 2))
+    await surveyStore.updateSurvey(surveyNumericId.value, surveyData) // Обновляем по числовому id
     survey.value.active = newActive
     showStatusModal.value = false
   } catch (err) {
@@ -167,7 +163,7 @@ const copyLink = () => {
 
 const deleteSurvey = async () => {
   try {
-    await surveyStore.deleteSurvey(surveyId)
+    await surveyStore.deleteSurvey(surveyNumericId.value) // Удаляем по числовому id
     showDeleteModal.value = false
     router.push('/surveys')
   } catch (err) {
@@ -257,12 +253,17 @@ const prevPage = () => {
             <p class="text-base-content/70 text-lg mb-4">{{ survey.description }}</p>
             <div class="flex flex-wrap gap-4 items-center text-sm">
               <div class="flex items-center gap-2 bg-base-200 px-4 py-2 rounded-full">
-                <i class="fa-solid fa-calendar-check text-primary"></i>
+                <i class="fa-regular fa-calendar-check text-primary"></i>
                 <span>{{ survey.practice?.title }} - {{ survey.group?.title }}</span>
               </div>
               <div class="flex items-center gap-2 bg-base-200 px-4 py-2 rounded-full">
                 <i class="fa-regular fa-calendar text-primary"></i>
                 Создан: {{ new Date(survey.created_at).toLocaleDateString() }}
+              </div>
+              <!-- Лимит ответов с иконкой fa-regular fa-lock -->
+              <div class="flex items-center gap-2 bg-base-200 px-4 py-2 rounded-full">
+                <i class="fa-solid fa-shield-halved text-primary"></i> Лимит:
+                {{ survey.response_limit || 'Не ограничен' }}
               </div>
               <div class="flex items-center gap-2 bg-base-200 px-4 py-2 rounded-full">
                 <i class="fa-regular fa-message text-primary"></i>
@@ -275,7 +276,7 @@ const prevPage = () => {
               <i class="fa-solid fa-rotate mr-2"></i>
               Обновить
             </button>
-            <RouterLink :to="'/survey/edit/' + survey.id" class="btn btn-primary">
+            <RouterLink :to="'/survey/edit/' + survey.public_id" class="btn btn-primary">
               <i class="fa-solid fa-pen-to-square mr-2"></i>
               Изменить
             </RouterLink>
@@ -465,6 +466,9 @@ const prevPage = () => {
                   <div class="font-medium text-base-content/70">
                     {{ survey.questions.find((q) => q.id === parseInt(questionId))?.title }}
                   </div>
+                  <p class="text-base-content/70 mb-2">
+                    {{ survey.questions.find((q) => q.id === parseInt(questionId))?.description }}
+                  </p>
                   <div class="text-lg font-semibold">{{ answer }}</div>
                 </div>
               </div>

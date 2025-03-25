@@ -10,3 +10,20 @@
 * {
   font-family: 'Gilroy', sans-serif;
 }
+
+:root {
+  --logo-color: #ffffff; /* Цвет логотипа по умолчанию (ночной режим) */
+}
+
+[data-theme='winter'] {
+  --logo-color: #394e6a; /* Цвет логотипа для светлой темы */
+}
+
+.logo {
+  filter: brightness(0) saturate(100%) invert(100%); /* По умолчанию белый */
+}
+
+[data-theme='winter'] .logo {
+  filter: brightness(0) saturate(100%) invert(26%) sepia(14%) saturate(847%) hue-rotate(173deg)
+    brightness(90%) contrast(91%);
+}

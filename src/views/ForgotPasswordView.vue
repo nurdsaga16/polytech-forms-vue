@@ -1,27 +1,28 @@
-<!-- src/views/LoginView.vue -->
 <script setup>
 import { ref } from 'vue'
-import { useAuthStore } from '../stores/useAuthStore'
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/useAuthStore'
 
 const router = useRouter()
 const authStore = useAuthStore()
-
 const email = ref('')
-const password = ref('')
 const isLoading = ref(false)
+const successMessage = ref('')
 const error = ref('')
 
 const handleSubmit = async (e) => {
-  e.preventDefault()
+  e.preventDefault() // Дополнительная страховка
   isLoading.value = true
   error.value = ''
+  successMessage.value = ''
 
   try {
-    await authStore.login(email.value, password.value)
-    router.push('/')
+    await authStore.forgotPassword(email.value)
+    successMessage.value = 'Ссылка для сброса пароля отправлена на вашу почту'
+    email.value = '' // Очищаем поле после успешной отправки
   } catch (err) {
-    error.value = err.message || 'Произошла ошибка при входе'
+    error.value = err.message || 'Произошла ошибка'
+    console.error('Ошибка при отправке запроса:', err) // Логируем ошибку для отладки
   } finally {
     isLoading.value = false
   }
@@ -29,19 +30,28 @@ const handleSubmit = async (e) => {
 </script>
 
 <template>
-  <div class="login flex items-center justify-center bg-base-200">
+  <div class="forgot-password flex items-center justify-center bg-base-200">
     <div class="w-full max-w-md p-4 sm:p-8 bg-base-100 rounded-2xl shadow-xl">
+      <!-- Логотип и заголовок -->
       <div class="text-center mb-6 sm:mb-8">
         <div
           class="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-3 sm:mb-4 bg-base-200 rounded-full flex items-center justify-center"
         >
-          <i class="fa-solid fa-right-to-bracket text-2xl sm:text-3xl text-primary"></i>
+          <i class="fa-solid fa-key text-2xl sm:text-3xl text-primary"></i>
         </div>
-        <h2 class="text-2xl sm:text-3xl font-bold text-base-content">Добро пожаловать</h2>
-        <p class="text-sm sm:text-base text-base-content/70 mt-2">Войдите в свой аккаунт</p>
+        <h2 class="text-2xl sm:text-3xl font-bold text-base-content">Сброс пароля</h2>
+        <p class="text-sm sm:text-base text-base-content/70 mt-2">
+          Введите email для восстановления доступа
+        </p>
       </div>
 
-      <form @submit="handleSubmit" autocomplete="off" novalidate class="space-y-4 sm:space-y-6">
+      <form
+        @submit.prevent="handleSubmit"
+        autocomplete="off"
+        novalidate
+        class="space-y-4 sm:space-y-6"
+      >
+        <!-- Поле Email -->
         <div class="form-control">
           <label class="label">
             <span class="label-text text-sm sm:text-base font-medium">Почта</span>
@@ -62,40 +72,19 @@ const handleSubmit = async (e) => {
           </div>
         </div>
 
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text text-sm sm:text-base font-medium">Пароль</span>
-          </label>
-          <div class="relative">
-            <span
-              class="absolute inset-y-0 left-0 pl-3 flex items-center text-base-content/50 z-10"
-            >
-              <i class="fa-solid fa-lock text-sm sm:text-base"></i>
-            </span>
-            <input
-              v-model="password"
-              type="password"
-              placeholder="Ваш пароль"
-              class="input input-bordered w-full pl-10 text-sm sm:text-base h-10 sm:h-12"
-              required
-            />
-          </div>
-          <!-- Добавляем ссылку "Забыли пароль?" -->
-          <div class="text-right mt-2">
-            <router-link
-              to="/forgot-password"
-              class="text-sm text-primary hover:underline hover:text-primary-focus transition-colors"
-            >
-              Забыли пароль?
-            </router-link>
-          </div>
+        <!-- Сообщение об успехе -->
+        <div v-if="successMessage" class="alert alert-success text-sm sm:text-base">
+          <i class="fa-solid fa-check-circle"></i>
+          <span>{{ successMessage }}</span>
         </div>
 
+        <!-- Сообщение об ошибке -->
         <div v-if="error" class="alert alert-error text-sm sm:text-base">
           <i class="fa-solid fa-circle-exclamation"></i>
           <span>{{ error }}</span>
         </div>
 
+        <!-- Кнопка отправки -->
         <button
           type="submit"
           class="btn btn-primary w-full h-10 sm:h-12 text-base sm:text-lg font-medium"
@@ -103,18 +92,27 @@ const handleSubmit = async (e) => {
         >
           <template v-if="isLoading">
             <span class="loading loading-spinner loading-sm"></span>
-            <span class="ml-2">Вход...</span>
+            <span class="ml-2">Отправка...</span>
           </template>
-          <template v-else> Войти </template>
+          <template v-else> Отправить </template>
         </button>
+
+        <!-- Ссылка назад на логин -->
+        <div class="text-center">
+          <router-link
+            to="/login"
+            class="text-sm text-primary hover:underline hover:text-primary-focus transition-colors"
+          >
+            Вернуться к входу
+          </router-link>
+        </div>
       </form>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* Существующие стили остаются без изменений */
-.login {
+.forgot-password {
   min-height: calc(100vh - 64px - 101.53px);
   padding: 1rem;
 }
@@ -124,7 +122,7 @@ const handleSubmit = async (e) => {
 }
 
 @media (max-width: 640px) {
-  .login {
+  .forgot-password {
     padding: 0.5rem;
   }
 
@@ -151,7 +149,7 @@ const handleSubmit = async (e) => {
 }
 
 @media (min-width: 641px) and (max-width: 1024px) {
-  .login {
+  .forgot-password {
     padding: 2rem;
   }
 
